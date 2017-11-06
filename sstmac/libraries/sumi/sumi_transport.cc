@@ -267,7 +267,7 @@ sumi_transport::handle(sstmac::transport_message* smsg)
     //a null message is sent to me to signal that I have stuff waiting in my completion queue
     debug_printf(sprockit::dbg::sumi, "Rank %d got cq notification", rank_);
     sumi::message::ptr next;
-    bool empty = completion_queue_.pop_front_and_return(next);
+    bool empty = pt2pt_done_.pop_front_and_return(next);
     if (empty){
       spkt_abort_printf("sumi transport received null message, but completion queue is empty");
     }
@@ -323,7 +323,7 @@ sumi_transport::handle(sstmac::transport_message* smsg)
   }
 
   sumi::message::ptr msg;
-  bool empty = completion_queue_.pop_front_and_return(msg);
+  bool empty = pt2pt_done_.pop_front_and_return(msg);
   return msg;  // will return message::ptr() if empty
 }
 
@@ -530,21 +530,21 @@ sumi_transport::collective_block(sumi::collective::type_t ty, int tag)
   //first we have to loop through the completion queue to see if it already exists
   while(1)
   {
-  std::list<sumi::message::ptr>::iterator it, end = completion_queue_.start_iteration();
-  for (it=completion_queue_.begin(); it != end; ++it){
+  std::list<sumi::message::ptr>::iterator it, end = pt2pt_done_.start_iteration();
+  for (it=pt2pt_done_.begin(); it != end; ++it){
     sumi::message::ptr msg = *it;
     if (msg->class_type() == sumi::message::collective_done){
       //this is a collective done message
       auto cmsg = std::dynamic_pointer_cast<sumi::collective_done_message>(msg);
       if (tag == cmsg->tag() && ty == cmsg->type()){  //done!
-        completion_queue_.erase(it);
-        completion_queue_.end_iteration();
+        pt2pt_done_.erase(it);
+        pt2pt_done_.end_iteration();
         return cmsg;
       }
     }
   }
 
-  completion_queue_.end_iteration();
+  pt2pt_done_.end_iteration();
   sumi::message::ptr msg = poll_pending_messages(true); //block
 
   if (msg->class_type() == sumi::message::collective_done){
@@ -554,7 +554,7 @@ sumi_transport::collective_block(sumi::collective::type_t ty, int tag)
       return cmsg;
     }
   }
-  completion_queue_.push_back(msg);
+  pt2pt_done_.push_back(msg);
 
   }
 

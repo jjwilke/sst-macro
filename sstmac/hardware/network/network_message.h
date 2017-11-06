@@ -99,8 +99,7 @@ class network_message :
 
   network_message(node_id toaddr, node_id fromaddr, int num_bytes) :
     bytes_(num_bytes),
-    toaddr_(toaddr),
-    fromaddr_(fromaddr)
+    message(toaddr, fromaddr)
   {
   }
 
@@ -157,14 +156,6 @@ class network_message :
     return fromaddr_;
   }
 
-  void set_toaddr(node_id addr) {
-    toaddr_ = addr;
-  }
-
-  void set_fromaddr(node_id addr) {
-    fromaddr_ = addr;
-  }
-
   void set_needs_ack(bool n) {
     needs_ack_ = n;
   }
@@ -177,14 +168,6 @@ class network_message :
   virtual void serialize_order(serializer& ser) override;
 
   void convert_to_ack();
-
-  void set_flow_id(uint64_t id) {
-    flow_id_ = id;
-  }
-
-  uint64_t flow_id() const override {
-    return flow_id_;
-  }
 
   sw::app_id aid() const {
     return aid_;
@@ -202,16 +185,10 @@ class network_message :
 
   long byte_length() const override;
 
-  node_id toaddr_;
-
-  node_id fromaddr_;
-
  protected:
   void clone_into(network_message* cln) const;
 
  protected:
-  uint64_t flow_id_;
-
   sw::app_id aid_;
 
   bool needs_ack_;

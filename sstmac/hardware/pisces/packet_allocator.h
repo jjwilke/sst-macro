@@ -79,6 +79,10 @@ class packet_allocator
          node_id toaddr, node_id fromaddr,
          serializable* msg) = 0;
 
+  /**
+   * @brief ~packet_allocator
+   */
+
   virtual ~packet_allocator(){}
 
 };

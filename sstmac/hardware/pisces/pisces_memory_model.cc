@@ -73,9 +73,9 @@ std::string
 memory_message::to_string() const
 {
   uint32_t num, node;
-  unique_event_id::unpack(id_, node, num);
+  unique_event_id::unpack(flow_id(), node, num);
   return sprockit::printf("memory message %lu: seqnum %d on node %d with %d bytes",
-                          id_, node, num, bytes_);
+                          flow_id(), node, num, bytes_);
 }
 
 pisces_memory_packetizer::pisces_memory_packetizer(

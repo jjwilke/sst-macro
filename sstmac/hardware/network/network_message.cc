@@ -139,7 +139,6 @@ network_message::serialize_order(serializer& ser)
   ser & needs_ack_;
   ser & toaddr_;
   ser & fromaddr_;
-  ser & flow_id_;
   ser & bytes_;
   ser & type_;
   ser & aid_;
@@ -196,10 +195,10 @@ network_message::byte_length() const
 void
 network_message::clone_into(network_message* cln) const
 {
+  message::clone_into(cln);
   cln->needs_ack_ = needs_ack_;
   cln->toaddr_ = toaddr_;
   cln->fromaddr_ = fromaddr_;
-  cln->flow_id_ = flow_id_;
   cln->bytes_ = bytes_;
   cln->type_ = type_;
 }

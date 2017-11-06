@@ -57,19 +57,16 @@ namespace hw {
 class memory_message : public message
 {
   NotSerializable(memory_message)
-
  public:
   memory_message(long bytes, uint64_t id, double max_bw) :
-    bytes_(bytes), id_(id), max_bw_(max_bw)
+    bytes_(bytes), max_bw_(max_bw),
+    message()
   {
+    set_flow_id(id);
   }
 
   long byte_length() const override {
     return bytes_;
-  }
-
-  uint64_t flow_id() const override {
-    return id_;
   }
 
   std::string to_string() const override;
@@ -87,7 +84,6 @@ class memory_message : public message
   }
 
  private:
-  uint64_t id_;
   long bytes_;
   double max_bw_;
 };

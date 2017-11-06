@@ -65,8 +65,6 @@ END_SERIALIZATION_NAMESPACE
 
 namespace sumi {
 
-
-
 class message :
   public sprockit::printable,
   public sumi::serializable

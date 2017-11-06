@@ -59,14 +59,35 @@ class flow :
   public sprockit::printable
 {
  public:
-  virtual uint64_t flow_id() const = 0;
-
   /**
    * Virtual function to return size. Child classes should impement this
    * if they want any size tracked / modeled.
    * @return Zero size, meant to be implemented by children.
    */
   virtual long byte_length() const = 0;
+
+  uint64_t flow_id() const {
+    return flow_id_;
+  }
+
+  void set_flow_id(uint64_t id) {
+    flow_id_ = id;
+  }
+
+  void serialize_order(serializer& ser){
+    ser & flow_id_;
+    event::serialize_order(ser);
+  }
+
+  void clone_into(flow* flw) const {
+    flw->flow_id_ = flow_id_;
+  }
+
+ protected:
+  flow(){} //for serialization
+
+ private:
+  uint64_t flow_id_;
 };
 
 /**
@@ -75,16 +96,40 @@ class flow :
 class message :
   public flow
 {
-
  public:
   virtual ~message() {}
 
-  virtual node_id toaddr() const = 0;
+  node_id toaddr() const {
+    return toaddr_;
+  }
 
-  virtual node_id fromaddr() const = 0;
+  node_id fromaddr() const {
+    return fromaddr_;
+  }
+
+  void set_toaddr(node_id addr) {
+    toaddr_ = addr;
+  }
+
+  void set_fromaddr(node_id addr) {
+    fromaddr_ = addr;
+  }
+
 
   virtual bool needs_ack() const {
     return false;
+  }
+
+  void serialize_order(serializer& ser){
+    flow::serialize_order(ser);
+    ser & toaddr_;
+    ser & fromaddr_;
+  }
+
+  void clone_into(message* msg) const {
+    flow::clone_into(msg);
+    msg->toaddr_ = toaddr_;
+    msg->fromaddr_ = fromaddr_;
   }
 
   virtual bool is_bcast() const {
@@ -94,6 +139,18 @@ class message :
   virtual message* clone_ack() const {
     return nullptr;
   }
+
+ protected:
+  message(){} //for serialization
+
+  message(node_id from, node_id to) :
+    toaddr_(to), fromaddr_(from)
+  {
+  }
+
+ private:
+  node_id toaddr_;
+  node_id fromaddr_;
 
 };
 
