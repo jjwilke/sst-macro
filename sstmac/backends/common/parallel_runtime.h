@@ -52,6 +52,8 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/common/timestamp.h>
 #include <sstmac/common/event_location.h>
 #include <sstmac/common/sst_event_fwd.h>
+#include <sstmac/common/ipc_event.h>
+#include <sstmac/common/event_manager_fwd.h>
 #include <sstmac/backends/common/sim_partition_fwd.h>
 #include <sstmac/hardware/interconnect/interconnect_fwd.h>
 #include <sprockit/factories/factory.h>
@@ -59,6 +61,21 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <list>
 
 DeclareDebugSlot(parallel);
+
+template <class T>
+void align64(T& t){
+  if (t % 64){
+    t = t + 64 - t%64;
+  }
+}
+
+template <class T>
+void align64(T*& t){
+  intptr_t ptr = (intptr_t) t;
+  if (ptr % 64){
+    t = (T*)(ptr + 64 - ptr%64);
+  }
+}
 
 namespace sstmac {
 
@@ -69,53 +86,83 @@ class parallel_runtime :
  public:
   virtual ~parallel_runtime();
 
-  struct comm_buffer {
-    char* ptr;
-    size_t remaining;
-    size_t allocSize;
+  struct comm_buffer : public lockable {
+    int64_t bytesAllocated;
+    int64_t allocSize;
+    int64_t filledSize;
+    char* allocation;
     char* storage;
-    std::list<char*> expiredArrays;
 
-    comm_buffer() : storage(nullptr), ptr(nullptr) {}
+    struct backup_buffer {
+      uint64_t maxSize;
+      uint64_t filledSize;
+      char* buffer;
+    };
 
-    void erase(){
-      if (storage) delete[] storage;
+    comm_buffer() : storage(nullptr), allocation(nullptr),
+      filledSize(0), bytesAllocated(0) {}
+
+    ~comm_buffer(){
+      if (allocation) delete[] allocation;
     }
 
-    void init(size_t size){
-      allocSize = size;
-      storage = new char[allocSize];
-      ptr = storage;
-      remaining = allocSize;
+    char* buffer() const {
+      return storage;
     }
 
-    void resize(size_t size){
-      if (size <= allocSize) return;
-      expiredArrays.push_back(storage);
-      init(size);
+    char* nextBuffer() const {
+      return storage + bytesAllocated;
     }
 
-    void reset(){
-      for (char* old : expiredArrays){
-        delete[] old;
+    /**
+     * @brief bytesFilled
+     * @return The number of bytes actually packed into the storage. Only non-zero
+     *         if backup buffer is in use
+     */
+    size_t bytesFilled() const {
+      return filledSize;
+    }
+
+    size_t totalBytes() const {
+      return bytesAllocated;
+    }
+
+    bool hasBackup() const {
+      return !backups.empty();
+    }
+
+    char* backup() const {
+      return backups.back().buffer;
+    }
+
+    void copyToBackup();
+
+    void reset();
+
+    void realloc(size_t size);
+
+    void ensureSpace(size_t size)
+    {
+      if (allocSize < size){
+        realloc(size);
       }
-      expiredArrays.clear();
-      ptr = storage;
-      remaining = allocSize;
-    }
-
-    void grow(){
-      if (!ptr) spkt_abort_printf("comm_buffer cannot grow - no previous storage allocated");
-      expiredArrays.push_back(storage);
-      init(allocSize*2);
     }
 
     void shift(size_t size){
-      ptr += size;
-      remaining -= size;
+      bytesAllocated += size;
     }
 
+    char* allocateSpace(size_t size, ipc_event_t* ev);
+
+    std::vector<backup_buffer> backups;
+
   };
+
+#if !SSTMAC_INTEGRATED_SST_CORE
+  void send_event(ipc_event_t* iev);
+
+  static void run_serialize(serializer& ser, ipc_event_t* iev);
+#endif
 
   static const int global_root;
 
@@ -163,23 +210,11 @@ class parallel_runtime :
 
   virtual void init_partition_params(sprockit::sim_parameters* params);
 
-  /**
-   @param pool A buffer cache corresponding to a pool of free buffers
-   @param incoming A buffer cache holding buffers that correspond to incoming messages
-  */
-  virtual void send_recv_messages(std::vector<void*>& incoming);
+  virtual timestamp send_recv_messages(timestamp vote){
+    return vote;
+  }
 
-  /**
-   * @param The topology id to send a remote message to
-   * @param buffer The buffer containing a serialized message
-   * @param size The size of the buffer being sent
-   */
-  virtual void send_event(int thread_id,
-    timestamp t,
-    device_id tid,
-    device_id src,
-    uint32_t seqnum,
-    event* ev);
+  void reset_send_recv();
 
   int me() const {
     return me_;
@@ -201,11 +236,13 @@ class parallel_runtime :
     return part_;
   }
 
-  virtual void wait_merge_array(int tag) = 0;
+  int num_recvs_done() const {
+    return num_recvs_done_;
+  }
 
-  virtual void declare_merge_array(void* buffer, int size, int tag) = 0;
-
-  virtual bool release_merge_array(int tag) = 0;
+  const comm_buffer& recv_buffer(int idx) const {
+    return recv_buffers_[idx];
+  }
 
   static parallel_runtime* static_runtime(sprockit::sim_parameters* params);
 
@@ -218,16 +255,15 @@ class parallel_runtime :
   parallel_runtime(sprockit::sim_parameters* params,
                    int me, int nproc);
 
-  virtual void do_send_message(int lp, void* buffer, int size) = 0;
-
-  virtual void do_send_recv_messages(std::vector<void*>& buffers) = 0;
-
  protected:
    int nproc_;
    int nthread_;
    int me_;
    std::vector<comm_buffer> send_buffers_;
-   comm_buffer recv_buffer_;
+   std::vector<comm_buffer> recv_buffers_;
+   std::vector<int> sends_done_;
+   int num_sends_done_;
+   int num_recvs_done_;
    int buf_size_;
    partition* part_;
    static parallel_runtime* static_runtime_;

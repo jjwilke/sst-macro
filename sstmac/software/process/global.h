@@ -46,6 +46,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #define SSTMAC_SOFTWARE_PROCESS_GLOBAL_H_INCLUDED
 
 #include <sstream>
+#include <iostream>
 #include <sstmac/software/process/tls.h>
 
 extern int sstmac_global_stacksize;
@@ -55,6 +56,8 @@ namespace sstmac {
 class GlobalVariable {
  public:
   GlobalVariable(int& offset, const int size, const void* initData);
+
+  ~GlobalVariable();
 
   static int globalsSize() {
     return stackOffset;
@@ -73,7 +76,7 @@ class GlobalVariable {
 
 static inline void* get_global_at_offset(int offset){
   int stack; int* stackPtr = &stack;
-  size_t stackTopInt = ((size_t)stackPtr/sstmac_global_stacksize)*sstmac_global_stacksize + TLS_GLOBAL_MAP;
+  intptr_t stackTopInt = ((intptr_t)stackPtr/sstmac_global_stacksize)*sstmac_global_stacksize + TLS_GLOBAL_MAP;
   char** stackTopPtr = (char**) stackTopInt;
   char* globalMap = *stackTopPtr;
   return globalMap + offset;

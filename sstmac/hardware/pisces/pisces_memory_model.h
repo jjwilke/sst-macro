@@ -50,41 +50,37 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/hardware/pisces/pisces_arbitrator.h>
 #include <sstmac/hardware/pisces/pisces_sender.h>
 #include <sstmac/hardware/pisces/pisces_packetizer.h>
+#include <sprockit/thread_safe_new.h>
+#include <sprockit/allocator.h>
 
 namespace sstmac {
 namespace hw {
 
-class memory_message : public message
+class memory_message : 
+  public message,
+  public sprockit::thread_safe_new<memory_message>
 {
   NotSerializable(memory_message)
  public:
-  memory_message(long bytes, uint64_t id, double max_bw) :
+  memory_message(uint64_t bytes, uint64_t id, double max_bw) :
     bytes_(bytes), max_bw_(max_bw),
     message()
   {
     set_flow_id(id);
   }
 
-  long byte_length() const override {
+  uint64_t byte_length() const override {
     return bytes_;
   }
 
   std::string to_string() const override;
-
-  node_id toaddr() const override {
-    return node_id();
-  }
-
-  node_id fromaddr() const override {
-    return node_id();
-  }
 
   double max_bw() const {
     return max_bw_;
   }
 
  private:
-  long bytes_;
+  uint64_t bytes_;
   double max_bw_;
 };
 
@@ -107,7 +103,7 @@ class pisces_memory_packetizer : public packetizer
 
   void recv_credit(event* ev);
 
-  void inject(int vn, long bytes, long byte_offset, message *payload) override;
+  void inject(int vn, uint32_t bytes, uint64_t byte_offset, message *payload) override;
 
   bool spaceToSend(int vn, int num_bits) override {
     return channelFree_[vn];
@@ -131,7 +127,6 @@ class pisces_memory_packetizer : public packetizer
   noise_model* interval_noise_;
   int num_noisy_intervals_;
   packet_allocator* pkt_allocator_;
-  event_handler* self_credit_handler_;
   bool channelFree_[PISCES_MEM_DEFAULT_NUM_CHANNELS];
 
 };
@@ -151,13 +146,9 @@ class pisces_memory_model :
     return "packet flow memory model";
   }
 
-  void schedule(timestamp t, event_handler *handler, message*msg){
-    memory_model::schedule(t, handler, msg);
-  }
-
   void notify(int vn, message* msg) override;
 
-  void access(long bytes, double max_bw, callback* cb) override;
+  void access(uint64_t bytes, double max_bw, callback* cb) override;
 
   double max_single_bw() const override {
     return mem_packetizer_->max_single_bw();
@@ -167,10 +158,15 @@ class pisces_memory_model :
   void start(int channel, memory_message* msg, callback* cb);
 
  private:
-  std::map<message*, callback*> pending_requests_;
-  std::list<std::pair<memory_message*,callback*>> stalled_requests_;
+  template <class T, class U> using pair_alc = sprockit::thread_safe_allocator<std::pair<T,U>>;
+  //template <class T, class U> using pair_alc = std::allocator<std::pair<T,U>>;
+
+  std::map<message*, callback*, std::less<message*>,
+           pair_alc<message* const,callback*>> pending_requests_;
+  std::list<std::pair<memory_message*,callback*>,
+           pair_alc<memory_message*,callback*>> stalled_requests_;
   pisces_memory_packetizer* mem_packetizer_;
-  std::list<int> channels_available_;
+  std::vector<int> channels_available_;
   int nchannels_;
 
 };

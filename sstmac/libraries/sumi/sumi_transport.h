@@ -58,6 +58,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sumi/collective.h>
 #include <sumi/comm_functions.h>
 #include <sumi/transport.h>
+#include <sstmac/software/process/key.h>
 
 /**
  * SUMI = Simulator unified messagine interface
@@ -84,7 +85,13 @@ class sumi_transport :
 
   virtual ~sumi_transport();
 
-  sumi::message_ptr handle(sstmac::transport_message* msg);
+  int pt2pt_cq_id() const {
+    return pt2pt_cq_id_;
+  }
+
+  int collective_cq_id() const {
+    return collective_cq_id_;
+  }
 
   void incoming_event(event *ev) override;
 
@@ -94,13 +101,13 @@ class sumi_transport :
     int dest_rank,
     node_id dest_node,
     int dest_app,
-    const sumi::message::ptr& msg);
+    sumi::message* msg);
 
   void client_server_rdma_put(
     int dest_rank,
     node_id dest_node,
     int dest_app,
-    const sumi::message::ptr& msg);
+    sumi::message* msg);
 
   /**
    * Block on a collective of a particular type and tag
@@ -109,16 +116,12 @@ class sumi_transport :
    * @param tag
    * @return
    */
-  sumi::collective_done_message::ptr
-  collective_block(sumi::collective::type_t ty, int tag) override;
-
-  void cq_notify() override;
+  sumi::collective_done_message* collective_block(
+      sumi::collective::type_t ty, int tag, int cq_id = 0) override;
 
   double wall_time() const override;
 
-  sumi::message::ptr poll_pending_messages(bool blocking, double timeout = -1) override;
-
-  void ping_timeout(sumi::pinger* pnger);
+  sumi::transport_message* poll_pending_messages(bool blocking, double timeout = -1) override;
 
   /**
    * @brief send Intra-app. Send within the same process launch (i.e. intra-comm MPI_COMM_WORLD). This contrasts
@@ -129,11 +132,7 @@ class sumi_transport :
    * @param dst
    * @param needs_ack
    */
-  void send(long byte_length,
-    const sumi::message_ptr& msg,
-    int ty,
-    int dst,
-    bool needs_ack);
+  void send(uint64_t byte_length, sumi::message* msg, int ty, int dst);
 
   void incoming_message(transport_message* msg);
 
@@ -145,26 +144,20 @@ class sumi_transport :
 
   event_scheduler* des_scheduler() const;
 
-  void memcopy(long bytes);
+  void memcopy(uint64_t bytes) override;
+
+  void pin_rdma(uint64_t bytes);
 
  private:
-  void do_smsg_send(int dst, const sumi::message::ptr &msg) override;
+  void do_smsg_send(int dst, sumi::message* msg) override;
 
-  void do_rdma_put(int dst, const sumi::message::ptr& msg) override;
+  void do_rdma_put(int dst, sumi::message* msg) override;
 
-  void do_rdma_get(int src, const sumi::message::ptr& msg) override;
+  void do_rdma_get(int src, sumi::message* msg) override;
 
-  void do_nvram_get(int src, const sumi::message::ptr& msg) override;
+  void do_nvram_get(int src, sumi::message* msg) override;
 
-  void do_send_terminate(int dst) override;
-
-  void do_send_ping_request(int dst) override;
-
-  void delayed_transport_handle(const sumi::message::ptr& msg) override;
-
-  void schedule_ping_timeout(sumi::pinger* pnger, double to) override;
-
-  void schedule_next_heartbeat() override;
+  void send_terminate(int dst) override;
 
   void go_die() override;
 
@@ -189,16 +182,30 @@ class sumi_transport :
                  sstmac::sw::software_id sid,
                  sstmac::sw::operating_system* os);
 
+  sumi::public_buffer make_public_buffer(void* buffer, int size) override {
+    pin_rdma(size);
+    return sumi::public_buffer(buffer);
+  }
+
+  void unmake_public_buffer(sumi::public_buffer buf, int size) override {}
+
+  void free_public_buffer(sumi::public_buffer buf, int size) override {
+    ::free(buf.ptr);
+  }
+
  private:
-  void send(long byte_length,
+  void send(uint64_t byte_length,
     int dest_rank,
     node_id dest_node,
     int dest_app,
-    const sumi::message::ptr& msg,
-    bool needs_ack,
+    sumi::message* msg,
     int ty);
 
+  void process(sstmac::transport_message* msg);
+
   void ctor_common(sstmac::sw::software_id sid);
+
+  static sstmac::sw::ftq_tag sumi_transport_tag;
 
   std::string server_libname_;
 
@@ -206,9 +213,9 @@ class sumi_transport :
 
   std::list<transport_message*> pending_messages_;
 
-  std::list<sstmac::sw::key*> blocked_keys_;
+  std::list<sstmac::sw::thread*> blocked_threads_;
 
-  device_id loc_;
+  uint32_t component_id_;
 
   timestamp post_rdma_delay_;
 
@@ -221,6 +228,26 @@ class sumi_transport :
   sstmac::stat_spyplot* spy_num_messages_;
 
   sstmac::stat_spyplot* spy_bytes_;
+
+  int collective_cq_id_;
+
+  int pt2pt_cq_id_;
+
+  sstmac::timestamp rdma_pin_latency_;
+  sstmac::timestamp rdma_page_delay_;
+  int page_size_;
+  bool pin_delay_;
+
+#ifdef FEATURE_TAG_SUMI_RESILIENCE
+  void send_ping_request(int dst) override;
+
+  void ping_timeout(sumi::pinger* pnger);
+
+  void schedule_ping_timeout(sumi::pinger* pnger, double to) override;
+
+  void schedule_next_heartbeat() override;
+#endif
+
 };
 
 }

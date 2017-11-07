@@ -85,16 +85,24 @@ void* sstmac_memset(void* ptr, int value, unsigned long sz){
 }
 
 extern "C"
+int sstmac_gethostname(char* name, size_t len)
+{
+  int addr = sstmac::sw::operating_system::current_os()->addr();
+  std::string sst_name = sprockit::printf("nid%d", addr);
+  if (sst_name.size() > len){
+    return -1;
+  } else {
+    ::strcpy(name, sst_name.c_str());
+    return 0;
+  }
+}
+
+extern "C"
 void sstmac_free(void* ptr){
 #ifdef free
 #error #sstmac free macro should not be defined in util.cc - refactor needed
 #endif
   if (isNonNullBuffer(ptr)) free(ptr);
-}
-
-int&
-should_skip_operator_new(){
-  return sstmac::sw::operating_system::static_os_thread_context().skip_next_op_new;
 }
 
 double omp_get_wtime(){

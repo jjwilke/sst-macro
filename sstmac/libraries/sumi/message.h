@@ -47,16 +47,18 @@ Questions? Contact sst-macro-help@sandia.gov
 
 #include <sstmac/hardware/network/network_message.h>
 #include <sstmac/software/process/operating_system_fwd.h>
-#include <sstmac/software/process/key_fwd.h>
 #include <sstmac/common/messages/library_message.h>
 #include <sstmac/libraries/sumi/message_fwd.h>
-#include <sumi/message_fwd.h>
+#include <sumi/message.h>
+#include <sprockit/thread_safe_new.h>
 
 namespace sstmac {
 
 class transport_message :
   public ::sstmac::hw::network_message,
-  public ::sstmac::library_interface
+  public ::sumi::transport_message,
+  public ::sstmac::library_interface,
+  public sprockit::thread_safe_new<transport_message>
 {
    ImplementSerializable(transport_message)
 
@@ -66,17 +68,23 @@ class transport_message :
   transport_message(
      const std::string& libname,
      sw::app_id aid,
-     const sumi::message_ptr& msg,
-     long byte_length)
+     sumi::message* msg,
+     uint64_t byte_length)
    : library_interface(libname),
       network_message(aid, byte_length),
-      payload_(msg)
+      sumi::transport_message(msg)
   {
   }
 
   virtual void serialize_order(serializer& ser) override;
 
-  sumi::message_ptr payload() const {
+  sumi::message* take_payload() {
+    auto ret = payload_;
+    payload_ = nullptr;
+    return ret;
+  }
+
+  sumi::message* get_payload() const {
     return payload_;
   }
 
@@ -120,10 +128,13 @@ class transport_message :
  protected:
   void clone_into(transport_message* cln) const;
 
-  void reverse() override;
+  void reverse() override {
+    network_message::reverse();
+    std::swap(src_, dest_);
+    std::swap(src_app_, dest_app_);
+  }
 
  private:
-  sumi::message_ptr payload_;
   int src_;
   int dest_;
   int src_app_;

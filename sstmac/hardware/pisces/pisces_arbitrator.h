@@ -81,7 +81,7 @@ class pisces_bandwidth_arbitrator
   }
 
   static inline timestamp
-  credit_delay(double max_in_bw, double out_bw, long bytes){
+  credit_delay(double max_in_bw, double out_bw, uint32_t bytes){
     double credit_delta = 1.0/out_bw - 1.0/max_in_bw;
     credit_delta = std::max(0., credit_delta);
     return timestamp(bytes * credit_delta);
@@ -154,7 +154,7 @@ class pisces_simple_arbitrator :
 
   timestamp head_tail_delay(pisces_payload *pkt) override {
     //no delay
-    return timestamp(0,timestamp::exact);
+    return timestamp();
   }
 
   int bytes_sending(timestamp now) const override;
@@ -205,7 +205,7 @@ class pisces_cut_through_arbitrator :
 
   void do_arbitrate(pkt_arbitration_t& st);
 
-  struct bandwidth_epoch {
+  struct bandwidth_epoch : public sprockit::thread_safe_new<bandwidth_epoch> {
     bw_t bw_available; //bandwidth is bytes per timestamp tick
     ticks_t start;
     ticks_t length;

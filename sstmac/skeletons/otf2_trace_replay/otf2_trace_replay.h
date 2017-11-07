@@ -57,18 +57,6 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/skeletons/otf2_trace_replay/callqueue.h>
 #include <sstmac/skeletons/otf2_trace_replay/structures.h>
 
-RegisterKeywords(
-  "otf2_timescale",
-  "otf2_terminate_percent",
-  "otf2_print_progress",
-  "otf2_metafile",
-  "otf2_print_mpi_calls",
-  "otf2_print_trace_events",
-  "otf2_print_time_deltas"
-  "otf2_print_unknown_callback"
-);
-
-
 class OTF2TraceReplayApp : public sstmac::sw::app {
   FactoryRegister("otf2_trace_replay_app | parseotf2 | otf2",
                sstmac::sw::app, OTF2TraceReplayApp,
@@ -87,12 +75,6 @@ class OTF2TraceReplayApp : public sstmac::sw::app {
   bool PrintMpiCalls();
   bool PrintTimeDeltas();
   bool PrintUnknownCallback();
-
-  /* This trace replay class reads the OTF2's global definitions to initialize
-   * MPI constructs, but uses local event files to scalably replay events.
-   * This results in a mis-match between locally generated and global rank IDs.
-   */
-  uint32_t MapRank(uint32_t local_rank);
 
   virtual void skeleton_main();
 
@@ -114,7 +96,6 @@ class OTF2TraceReplayApp : public sstmac::sw::app {
   std::vector<OTF2_LocationGroup> otf2_location_groups;
   std::unordered_map<OTF2_StringRef, MPI_CALL_ID> otf2_mpi_call_map;
   std::vector<std::vector<uint32_t>> comm_map;
-  std::map<uint32_t, uint32_t> local_to_global_comm_map;
 
   ~OTF2TraceReplayApp() throw()	{ }
 

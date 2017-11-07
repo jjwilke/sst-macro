@@ -54,6 +54,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <stdint.h>
 #include <sumi/thread_safe_set.h>
 #include <sumi/config.h>
+#include <sprockit/allocator.h>
 
 DeclareDebugSlot(sumi_collective_buffer)
 
@@ -218,8 +219,6 @@ class collective_actor
 
   virtual ~collective_actor();
 
-  void partner_ping_failed(int global_rank);
-
   bool complete() const {
     return complete_;
   }
@@ -230,25 +229,12 @@ class collective_actor
 
   std::string rank_str() const;
 
-  void init(transport* my_api, communicator* dom, int tag, int context, bool fault_aware);
+  void init(transport* my_api, int tag, const collective::config& cfg);
 
  protected:
-  collective_actor(transport* my_api, communicator* dom, int tag, int context, bool fault_aware);
+  collective_actor(transport* my_api, int tag, const collective::config& cfg);
 
   collective_actor(){} //will be initialized later
-
-  /**
-   * Start pinging neighbor to make sure they are still alive
-   * @param rank
-   */
-  bool ping_neighbor(int dense_rank);
-
-  /**
-   * Stop pinging neighbor. I am done with them.
-   * They can be dead for all I care.
-   * @param rank
-   */
-  void cancel_ping(int dense_rank);
 
   int global_rank(int dense_rank) const;
 
@@ -265,26 +251,36 @@ class collective_actor
    */
   int comm_rank(int dense_rank) const;
 
-  /**
-   * Notification that a partner failed.
-   * Here the partner is identified by dense rank.
-   * See #dense_rank
-   * @param dense_rank
-   */
-  virtual void dense_partner_ping_failed(int dense_rank) = 0;
+  int dense_to_global_dst(int dense_dst);
 
   std::string rank_str(int dense_rank) const;
 
- protected:
-  std::string failed_proc_string() const;
-
-  /**
-   * Validation function to make sure all pings are cleared
-   */
-  void validate_pings_cleared();
-
   virtual void finalize(){}
 
+ protected:
+  transport* my_api_;
+
+  int dense_me_;
+
+  int dense_nproc_;
+
+  int tag_;
+
+  std::map<int, int> ping_refcounts_;
+
+  dense_rank_map rank_map_;
+
+  timeout_function* timeout_;
+
+  collective::config cfg_;
+
+  bool complete_;
+
+#ifdef FEATURE_TAG_SUMI_RESILIENCE
+ public:
+  void partner_ping_failed(int global_rank);
+
+ protected:
   bool ping_rank(int phys_rank, int dense_rank);
 
   bool is_failed(int dense_rank) const {
@@ -305,30 +301,46 @@ class collective_actor
 
   bool do_ping_neighbor(int dense_rank);
 
-  int dense_to_global_dst(int dense_dst);
-
- protected:
-  transport* my_api_;
-
-  communicator* comm_;
-
-  int dense_me_;
-
-  int dense_nproc_;
-
-  int tag_;
-
-  std::map<int, int> ping_refcounts_;
-
-  dense_rank_map rank_map_;
-
   thread_safe_set<int> failed_ranks_;
 
-  timeout_function* timeout_;
+ std::string failed_proc_string() const;
 
-  bool fault_aware_;
+ /**
+  * Validation function to make sure all pings are cleared
+  */
+ void validate_pings_cleared();
 
-  bool complete_;
+ /**
+  * Start pinging neighbor to make sure they are still alive
+  * @param rank
+  */
+ bool ping_neighbor(int dense_rank);
+
+ /**
+  * Stop pinging neighbor. I am done with them.
+  * They can be dead for all I care.
+  * @param rank
+  */
+ void cancel_ping(int dense_rank);
+
+ /**
+  * Notification that a partner failed.
+  * Here the partner is identified by dense rank.
+  * See #dense_rank
+  * @param dense_rank
+  */
+ virtual void dense_partner_ping_failed(int dense_rank) = 0;
+#else
+  bool ping_neighbor(int rank) const {
+    return false;
+  }
+
+  bool failed() const { return false; }
+
+  bool is_failed(int rank) const {
+    return false;
+  }
+#endif
 
 };
 
@@ -420,7 +432,7 @@ class dag_collective_actor :
 
   virtual ~dag_collective_actor();
 
-  virtual void recv(const collective_work_message::ptr& msg);
+  virtual void recv(collective_work_message* msg);
 
   virtual void start();
 
@@ -433,16 +445,11 @@ class dag_collective_actor :
 
   void deadlock_check() const;
 
-  void init(
-    collective::type_t type,
-    transport* my_api,
-    communicator* dom,
-    int nelems,
-    int type_size,
-    int tag,
-    bool fault_aware,
-    int context){
-    collective_actor::init(my_api, dom, tag, context, fault_aware);
+  void init(collective::type_t type,
+    transport* my_api, int nelems,
+    int type_size, int tag,
+    const collective::config& cfg){
+    collective_actor::init(my_api, tag, cfg);
     type_ = type;
     nelems_ = nelems;
     type_size_ = type_size;
@@ -456,9 +463,13 @@ class dag_collective_actor :
   virtual void init_tree(){}
 
  private:
-  typedef std::map<uint32_t, action*> active_map;
-  typedef std::multimap<uint32_t, action*> pending_map;
-  typedef std::multimap<uint32_t, collective_work_message::ptr> pending_msg_map;
+  template <class T, class U> using alloc = sprockit::thread_safe_allocator<std::pair<const T,U>>;
+  typedef std::map<uint32_t, action*, std::less<uint32_t>,
+                   alloc<uint32_t,action*>> active_map;
+  typedef std::multimap<uint32_t, action*, std::less<uint32_t>,
+                   alloc<uint32_t,action*>> pending_map;
+  typedef std::multimap<uint32_t, collective_work_message*, std::less<uint32_t>,
+                   alloc<uint32_t,collective_work_message*>> pending_msg_map;
 
  protected:
   dag_collective_actor() :
@@ -505,24 +516,24 @@ class dag_collective_actor :
   void send_rdma_get_header(action* ac);
 
   void next_round_ready_to_put(action* ac,
-    const collective_work_message::ptr& header);
+    collective_work_message* header);
 
   void next_round_ready_to_get(action* ac,
-    const collective_work_message::ptr& header);
+    collective_work_message* header);
 
-  void incoming_recv_message(action* ac, const collective_work_message::ptr& msg);
+  void incoming_recv_message(action* ac, collective_work_message* msg);
 
-  void incoming_send_message(action* ac, const collective_work_message::ptr& msg);
+  void incoming_send_message(action* ac, collective_work_message* msg);
 
-  void incoming_message(const collective_work_message::ptr& msg);
+  void incoming_message(collective_work_message* msg);
 
-  void incoming_nack(action::type_t ty, const collective_work_message::ptr& msg);
+  void incoming_nack(action::type_t ty, collective_work_message* msg);
 
-  void data_recved(const collective_work_message::ptr& msg, void* recvd_buffer);
+  void data_recved(collective_work_message* msg, void* recvd_buffer);
 
-  void data_recved(action* ac, const collective_work_message::ptr &msg, void *recvd_buffer);
+  void data_recved(action* ac, collective_work_message* msg, void *recvd_buffer);
 
-  void data_sent(const collective_work_message::ptr& msg);
+  void data_sent(collective_work_message* msg);
 
   virtual void buffer_action(void* dst_buffer, void* msg_buffer, action* ac) = 0;
 
@@ -538,11 +549,9 @@ class dag_collective_actor :
 
   void set_recv_buffer(action* ac, public_buffer& buf);
 
-  collective_work_message::ptr new_message(action* ac, collective_work_message::action_t act);
+  collective_work_message* new_message(action* ac, collective_work_message::action_t act);
 
-  collective_done_message::ptr done_msg() const;
-
-  void dense_partner_ping_failed(int dense_rank);
+  collective_done_message* done_msg() const;
 
   virtual void start_shuffle(action* ac);
 
@@ -612,8 +621,9 @@ class dag_collective_actor :
 
   std::set<action*, action_compare> initial_actions_;
 
-
-
+#ifdef FEATURE_TAG_SUMI_RESILIENCE
+  void dense_partner_ping_failed(int dense_rank);
+#endif
 };
 
 class bruck_actor : public dag_collective_actor

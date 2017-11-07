@@ -20,6 +20,7 @@ library_includedir=$(includedir)/sstmac/hardware
 nobase_library_include_HEADERS = \
   logp/logp_nic.h \
   logp/logp_switch.h \
+  logp/logp_switch_fwd.h \
   logp/logp_param_expander.h \
   logp/logp_memory_model.h \
   processor/processor.h \
@@ -55,6 +56,7 @@ nobase_library_include_HEADERS = \
   pisces/pisces_param_expander.h \
   pisces/pisces_arbitrator.h \
   pisces/pisces_buffer.h \
+  pisces/pisces_branched_switch.h \
   pisces/pisces_crossbar.h \
   pisces/pisces_nic.h \
   pisces/pisces_packetizer.h \
@@ -69,9 +71,9 @@ nobase_library_include_HEADERS = \
   interconnect/interconnect_fwd.h \
   switch/network_switch.h \
   switch/network_switch_fwd.h \
-  switch/dist_dummyswitch.h \
   topology/butterfly.h \
-  topology/crossbar.h \
+  topology/fully_connected.h \
+  topology/cascade.h \
   topology/dragonfly.h \
   topology/fat_tree.h \
   topology/torus.h \
@@ -83,8 +85,9 @@ nobase_library_include_HEADERS = \
   topology/structured_topology_fwd.h \
   topology/coordinates.h \
   topology/cartesian_topology.h \
+  topology/star.h \
   topology/structured_topology.h \
-  topology/tiled_dragonfly.h \
+  topology/tiled_cascade.h \
   topology/traffic/traffic.h \
   router/router.h \
   router/router_fwd.h \
@@ -121,6 +124,7 @@ libsstmac_hw_la_SOURCES =  \
   pisces/pisces_stats.cc \
   pisces/pisces_arbitrator.cc \
   pisces/pisces_buffer.cc \
+  pisces/pisces_branched_switch.cc \
   pisces/pisces_crossbar.cc \
   pisces/pisces_nic.cc \
   pisces/pisces_packetizer.cc \
@@ -132,24 +136,26 @@ libsstmac_hw_la_SOURCES =  \
   network/network_message.cc \
   interconnect/interconnect.cc \
   switch/network_switch.cc \
-  switch/dist_dummyswitch.cc \
   topology/butterfly.cc \
-  topology/crossbar.cc \
+  topology/fully_connected.cc \
+  topology/cascade.cc \
   topology/dragonfly.cc \
   topology/fat_tree.cc \
   topology/torus.cc \
   topology/tiled_torus.cc \
   topology/hypercube.cc \
   topology/coordinates.cc \
-  topology/tiled_dragonfly.cc \
+  topology/tiled_cascade.cc \
   topology/traffic/traffic.cc \
   router/router.cc \
   router/routable.cc \
+  router/dragonfly_minimal.cc \
   router/fat_tree_router.cc \
   router/minimal_routing.cc \
   router/multipath_routing.cc \
   router/ugal_routing.cc \
   router/valiant_routing.cc \
+  topology/star.cc \
   topology/structured_topology.cc \
   topology/cartesian_topology.cc \
   topology/topology.cc 

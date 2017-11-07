@@ -11,7 +11,7 @@
 include $(top_srcdir)/Makefile.common
 
 AM_CPPFLAGS += -I$(top_srcdir)/tests/mpi/include -Wp,-w \
-  -I$(srcdir) -I$(top_builddir)/pth -I$(top_srcdir)/pth -I$(top_srcdir)/sumi -I$(top_builddir)/sumi \
+  -I$(srcdir) -I$(top_srcdir)/sumi -I$(top_builddir)/sumi \
   -I$(top_builddir)/tests -I$(top_srcdir)/tests
 
 EXTRA_DIST = \
@@ -27,7 +27,8 @@ testexec_SOURCES = exec.cc
 testexec_LDADD = \
   $(top_builddir)/sprockit/sprockit/libsprockit.la \
   $(top_builddir)/sstmac/install/libsstmac.la \
-  $(top_builddir)/sstmac/main/libsstmac_main.la 
+  $(top_builddir)/sstmac/main/libsstmac_main.la \
+  $(FCONTEXT_LIBS)
 
 
 if EXTERNAL_BOOST

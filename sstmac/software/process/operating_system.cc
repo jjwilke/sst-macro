@@ -51,7 +51,10 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/common/runtime.h>
 #include <sstmac/common/event_manager.h>
 #include <sstmac/common/messages/library_message.h>
-
+#include <sstmac/software/launch/launch_request.h>
+#include <sstmac/software/launch/launch_event.h>
+#include <sstmac/hardware/interconnect/interconnect.h>
+#include <sstmac/hardware/logp/logp_switch.h>
 #if SSTMAC_HAVE_GNU_PTH
 #include <sstmac/software/threading/threading_pth.h>
 #endif
@@ -71,6 +74,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/software/libraries/unblock_event.h>
 #include <sstmac/software/libraries/compute/compute_event.h>
 #include <sstmac/hardware/nic/nic.h>
+#include <sstmac/common/thread_lock.h>
 
 #if SSTMAC_HAVE_UCONTEXT
 #include <sstmac/software/threading/threading_ucontext.h>
@@ -100,17 +104,13 @@ MakeDebugSlot(dropped_events)
 
 RegisterNamespaces("call_graph", "ftq");
 RegisterKeywords(
-"stack_size",
-"stack_chunk_size",
-"ftq",
-"ftq_trace",
-"ftq_epoch",
-"call_graph",
-"event_trace",
-"stack_protect",
-"event_trace_start",
-"event_trace_stop",
-"compute_scheduler",
+{ "stack_size", "the size of stack to allocate to each user-space thread" },
+{ "stack_chunk_size", "the block size to allocate in the memory pool when more stacks are needed" },
+{ "ftq", "DEPRECATED: sets the fileroot of the FTQ statistic" },
+{ "ftq_epoch", "DEPRECATED: sets the time epoch size for the FTQ statistic" },
+{ "call_graph", "DEPRECATED: sets the fileroot of the call graph statistic" },
+{ "compute_scheduler", "the type of compute scheduler or assigning cores to computation" },
+{ "context", "the user-space thread context library" },
 );
 
 //we have to have a globally visible (to C code) stack-size variable
@@ -119,19 +119,43 @@ extern int sstmac_global_stacksize;
 namespace sstmac {
 namespace sw {
 
+class delete_thread_event :
+  public event_queue_entry
+{
+ public:
+  delete_thread_event(thread* thr) :
+    thr_(thr),
+    event_queue_entry(thr->os()->component_id(), thr->os()->component_id())
+  {
+  }
+
+  void execute(){
+    delete thr_;
+  }
+
+ protected:
+  thread* thr_;
+};
+
 static sprockit::need_delete_statics<operating_system> del_statics;
+static stats_unique_tag cg_tag;
 
 #if SSTMAC_USE_MULTITHREAD
-std::vector<operating_system::os_thread_context> operating_system::os_thread_contexts_;
+std::vector<operating_system*> operating_system::active_os_;
 #else
-operating_system::os_thread_context operating_system::os_thread_context_;
+operating_system* operating_system::active_os_ = nullptr;
 #endif
 
 operating_system::operating_system(sprockit::sim_parameters* params, hw::node* parent) :
-  current_thread_id_(thread::main_thread),
+#if SSTMAC_INTEGRATED_SST_CORE
+  nthread_(1),
+  thread_id_(0),
+#else
+  nthread_(parent->nthread()),
+  thread_id_(parent->thread()),
+#endif
   my_addr_(parent->addr()),
   node_(parent),
-  next_msg_id_(0),
   call_graph_(nullptr),
   call_graph_active_(true), //on by default
   des_context_(nullptr),
@@ -146,6 +170,7 @@ operating_system::operating_system(sprockit::sim_parameters* params, hw::node* p
 #if SSTMAC_HAVE_GRAPHVIZ
   stat_descr_t stat_descr;
   stat_descr.dump_all = false;
+  stat_descr.unique_tag = &cg_tag;
   call_graph_ = optional_stats<graph_viz>(parent,
           params, "call_graph", "call_graph", &stat_descr);
 #else
@@ -154,51 +179,21 @@ operating_system::operating_system(sprockit::sim_parameters* params, hw::node* p
   }
 #endif
 
-  ftq_trace_ = optional_stats<ftq_calendar>(parent,
-        params, "ftq", "ftq");
+  ftq_trace_ = optional_stats<ftq_calendar>(parent, params, "ftq", "ftq");
 
-  sstmac_global_stacksize = params->get_optional_byte_length_param("stack_size", 1 << 17);
-  //must be a multiple of 4096
-  int stack_rem = sstmac_global_stacksize % 4096;
-  if (stack_rem){
-    sstmac_global_stacksize += (4096 - stack_rem);
-  }
-  bool mprot = params->get_optional_bool_param("stack_protect", false);
-  long suggested_chunk_size = 1<22;
-  long min_chunk_size = 8*sstmac_global_stacksize;
-  long default_chunk_size = std::max(suggested_chunk_size, min_chunk_size);
-  long chunksize = params->get_optional_byte_length_param("stack_chunk_size", default_chunk_size);
-#if SSTMAC_USE_MULTITHREAD
-  if (mprot){
-    sprockit::abort("operating_system:: cannot use stack protect in multithreaded mode");
-  }
-
-  if (os_thread_contexts_.size() == 0){
-    os_thread_contexts_.resize(1);
-    stack_alloc& salloc = os_thread_contexts_[0].stackalloc;
-    salloc.init(sstmac_global_stacksize, chunksize, mprot);
-  }
-#else
-  os_thread_context_.stackalloc.init(sstmac_global_stacksize, chunksize, mprot);
-#endif
-
-  //we automatically initialize the first context
-#if SSTMAC_USE_MULTITHREAD
-  event_manager* man = parent->event_mgr();
-  if (os_thread_contexts_.size() == 1){
-    os_thread_contexts_.resize(man->nthread());
-    os_thread_context& main_ctxt = os_thread_contexts_[0];
-    for (int i=1; i < man->nthread(); ++i){
-      os_thread_context& ctxt = os_thread_contexts_[i];
-      ctxt.stackalloc.init(
-        main_ctxt.stackalloc.stacksize(),
-        main_ctxt.stackalloc.chunksize(),
-        main_ctxt.stackalloc.use_mprot());
-    }
-  }
-#endif
+  stack_alloc::init(params);
 
   compute_sched_->configure(node_->proc()->ncores(), node_->nsocket());
+}
+
+void
+operating_system::init_threads(int nthread)
+{
+#if SSTMAC_USE_MULTITHREAD
+  if (active_os_.size() == 0){
+    active_os_.resize(nthread);
+  }
+#endif
 }
 
 operating_system::~operating_system()
@@ -222,135 +217,40 @@ operating_system::~operating_system()
   }
   if (compute_sched_) delete compute_sched_;
 
-  current_os_thread_context().stackalloc.clear();
-
 #if SSTMAC_HAVE_GRAPHVIZ
   if (call_graph_) delete call_graph_;
 #endif
 
-  if (ftq_trace_) delete ftq_trace_;
+  //if (ftq_trace_) delete ftq_trace_;
 }
 
-operating_system::os_thread_context operating_system::cxa_finalize_context_;
-
-
-#if SSTMAC_HAVE_GNU_PTH
-#define pth_available "pth,"
-#else
-#define pth_available ""
-#endif
-
-#if SSTMAC_HAVE_PTHREAD
-#define pthread_available "pthread,"
-#else
-#define pthread_available ""
-#endif
-
-#if SSTMAC_HAVE_UCONTEXT
-#define ucontext_available "ucontext,"
-#else
-#define ucontext_available ""
-#endif
-
 void
-operating_system::init_threading()
+operating_system::init_threading(sprockit::sim_parameters* params)
 {
-  if (des_context_)
+  if (des_context_){
     return; //already done
-
-  std::string threading_string;
-  const char *threading_pchar = getenv("SSTMAC_THREADING");
-  if (threading_pchar){
-    threading_string = threading_pchar;
-  } else { 
-#if defined(SSTMAC_USE_UCONTEXT) //explicitly specified default via configure, different from HAVE_UCONTEXT
-    threading_string = "ucontext";
-#elif defined(SSTMAC_USE_PTHREAD)
-    threading_string = "pthread";
-#elif defined(SSTMAC_USE_PTH)
-    threading_string = "pth";
-    
-    //if none of the above set, we have no explicitly specified default
-    //go ahead and pick a sensible one
-#elif SSTMAC_USE_MULTITHREAD //set priorities differently depending on whether we are in multithreading mode
-    #if defined(SSTMAC_HAVE_UCONTEXT)
-    threading_string = "ucontext";
-    #elif defined(SSTMAC_HAVE_PTHREAD)
-    threading_string = "pthread";
-    #else
-    sprockit::abort("operating_system: there are no threading frameworks compatible "
-                    "with multithreaded SST - must have ucontext or pthread");
-    #endif
-#else //not multithreaded
-    #if defined(SSTMAC_HAVE_GNU_PTH)
-    threading_string = "pth";
-    #elif defined(SSTMAC_HAVE_UCONTEXT)
-    threading_string = "ucontext";
-    #elif defined(SSTMAC_HAVE_PTHREAD)
-    threading_string = "pthread";
-    #else
-    #error no valid thread interfaces available (pth, pthread, ucontext supported)
-    #error ucontext is not available on MAC
-    #error pthread is not compatible with integrated SST core
-    #error pth must be downloaded and installed from GNU site
-    #endif
-#endif
   }
 
-  if (threading_string == "pth") {
-#if defined(SSTMAC_HAVE_GNU_PTH)
-   #if SSTMAC_USE_MULTITHREAD
-   sprockit::abort("operating_system: SSTMAC_THREADING=pth exists on system, but is not compatible with multithreading\n" 
-    "set environment SSTMAC_THREADING=ucontext for production jobs or SSTMAC_THREADING=pthread for debug jobs\n" 
-    "currently there is no efficient multithreading on platforms that don't support ucontext, including Mac OS X");
-   #else
-   des_context_ = new threading_pth();
-   #endif
-#else
-   sprockit::abort("operating_system: SSTMAC_THREADING=pth is not supported");
-#endif
-  }
-  else if (threading_string == "pthread") {
-#if defined(SSTMAC_HAVE_PTHREAD)
-#if SSTMAC_INTEGRATED_SST_CORE
-    int nthr = 1;
-#else
-    int nthr = event_mgr()->nthread();
-#endif
-    des_context_ = new threading_pthread(thread_id(), nthr);
-
-#else
-    sprockit::abort("operating_system: SSTMAC_THREADING=pthread is not supported");
-#endif
-    static bool you_have_been_warned = false;
-    if (!you_have_been_warned)
-      cerr0 << "Using pthread framework for virtual application stacks - good for debugging, but bad for performance\n"
 #if SSTMAC_USE_MULTITHREAD
-      << "Consider SSTMAC_THREADING=ucontext if supported" << std::endl;
-#else
-      << "Consider SSTMAC_THREADING=ucontext or pth if supported" << std::endl;
+  static thread_lock lock;
+  sprockit::thread_stack_size<int>() = sw::stack_alloc::stacksize();
+  lock.lock();
+  if (active_os_.size() == 0){
+    active_os_.resize(nthread());
+  }
+  lock.unlock();
+
+  //make sure to stash the thread ID in some thread-local storage
+  void* stack = thread_info::get_current_stack();
+  thread_info::set_thread_id(stack, threadId());
 #endif
-    you_have_been_warned = true;
-  }
-  else if (threading_string == "ucontext") {
-#if defined(SSTMAC_HAVE_UCONTEXT)
-    des_context_ = new threading_ucontext();
-#else
-    sprockit::abort("operating_system: SSTMAC_THREADING=ucontext is not supported");
-#endif
-  }
-  else {
-    spkt_throw_printf(sprockit::value_error,
-       "operating_system: invalid value %s for SSTMAC_THREADING environmental variable\n"
-       "choose one of " pth_available pthread_available ucontext_available,
-       threading_string.c_str());
-  }
+
+  des_context_ = thread_context::factory::get_optional_param(
+        "context", thread_context::default_threading(), params);
 
   des_context_->init_context();
 
-  threadstack_.push( thread_data_t(des_context_,(thread*) NULL) );
-  os_thread_context& ctxt = current_os_thread_context();
-  ctxt.current_thread = threadstack_.top().second;
+  active_thread_ = nullptr;
 }
 
 void
@@ -366,11 +266,9 @@ operating_system::delete_statics()
 void
 operating_system::sleep(timestamp t)
 {
-  sw::key* k = sw::key::construct();
-  sw::unblock_event* ev = new sw::unblock_event(this, k);
-  schedule_delay(t, ev);
-  block(k);
-  delete k;
+  sw::unblock_event* ev = new sw::unblock_event(this, active_thread_);
+  send_delayed_self_event_queue(t, ev);
+  block();
 }
 
 void
@@ -378,11 +276,11 @@ operating_system::sleep_until(timestamp t)
 {
   timestamp now_ = now();
   if (t > now_){
-    sw::key* k = sw::key::construct();
-    sw::unblock_event* ev = new sw::unblock_event(this, k);
-    schedule(t, ev);
-    block(k);
-    delete k;
+    //sw::key* k = sw::key::construct();
+    sw::unblock_event* ev = new sw::unblock_event(this, active_thread_);
+    send_self_event_queue(t, ev);
+    block();
+    //delete k;
   }
 }
 
@@ -390,12 +288,10 @@ void
 operating_system::compute(timestamp t)
 {
   //first thing's first - make sure I have a core to execute on
-  thread_data_t top = threadstack_.top();
-  thread* thr = top.second;
   //this will block if the thread has no core to run on
-  compute_sched_->reserve_core(thr);
+  compute_sched_->reserve_core(active_thread_);
   sleep(t);
-  compute_sched_->release_core(thr);
+  compute_sched_->release_core(active_thread_);
 }
 
 
@@ -415,22 +311,17 @@ operating_system::execute_kernel(ami::COMP_FUNC func, event *data,
 }
 
 void
-operating_system::execute(ami::COMP_FUNC func,
-                           event* data,
-                           key_traits::category cat)
+operating_system::execute(ami::COMP_FUNC func, event* data)
 {
-  //first thing's first - make sure I have a core to execute on
-  thread_data_t top = threadstack_.top();  
-  thread* thr = top.second;  
   //this will block if the thread has no core to run on
-  compute_sched_->reserve_core(thr);
+  compute_sched_->reserve_core(active_thread_);
   //initiate the hardware events
-  key* k = new key(cat);
-  callback* cb = new_callback(this, &operating_system::unblock, k);
+  //key* k = new key(cat);
+  callback* cb = new_callback(this, &operating_system::unblock, active_thread_);
   node_->execute(func, data, cb);
-  block(k);
-  compute_sched_->release_core(thr);
-  delete k;
+  block();
+  compute_sched_->release_core(active_thread_);
+  //delete k;
   //callbacks deleted by core
 }
 
@@ -469,30 +360,6 @@ operating_system::increment_app_refcount()
 void
 operating_system::simulation_done()
 {
-  cxa_finalize_context_.current_tid = task_id(-1);
-  cxa_finalize_context_.current_aid = app_id(-1);
-  cxa_finalize_context_.current_os = 0;
-  cxa_finalize_context_.current_thread = 0;
-}
-
-operating_system*
-operating_system::current_os()
-{
-  return static_os_thread_context().current_os;
-}
-
-void
-operating_system::switch_to_context(int aid, int tid)
-{
-#if SSTMAC_ENABLE_DEBUG_SWAP
-  thread_data_t from = current_os_->threadstack_.top();
-  threading_interface* thr = context_map_[aid][tid];
-  current_os_->threadstack_.push(thread_data_t(thr, NULL));
-  from.first->swap_context(thr);
-#else
-  spkt_throw_printf(sprockit::illformed_error,
-                   "operating system is not configured to track code positions");
-#endif
 }
 
 library*
@@ -501,71 +368,22 @@ operating_system::current_library(const std::string &name)
   return current_os()->lib(name);
 }
 
-app_id
-operating_system::current_aid()
-{
-  return static_os_thread_context().current_aid;
-}
-
-task_id
-operating_system::current_tid()
-{
-  return static_os_thread_context().current_tid;
-}
-
-node_id
-operating_system::current_node_id()
-{
-  os_thread_context& ctxt = static_os_thread_context();
-  node_id addr = runtime::node_for_task(ctxt.current_aid, ctxt.current_tid);
-  return addr;
-}
-
 void
-operating_system::switch_to_thread(thread_data_t tothread)
+operating_system::switch_to_thread(thread* tothread)
 {
-  //here there id is physical thread id
-  os_thread_context& ctxt = current_os_thread_context();
-  thread* next_thread = tothread.second;
-
-
-  long old_id = current_thread_id_;
-  thread* old_thread = ctxt.current_thread;
-  os_debug("switch thread from %ld to %ld",
-    current_thread_id_, tothread.second->thread_id());
-
-  thread_data_t from = threadstack_.top();
-  threadstack_.push(tothread);
-
-  os_debug("size of threadstack %d", threadstack_.size());
-
-  if (sprockit::debug::slot_active(sprockit::dbg::os)){
-    coutn << "os: threadstack=";
-    std::stack<thread_data_t> tmp = threadstack_;
-    while (!tmp.empty()) {
-      thread_data_t next = tmp.top();
-      thread* thr = next.second;
-      tmp.pop();
-      coutn << (thr ? thr->thread_id() : -1) << ",";
-    }
-    coutn << "\n";
+  if (active_thread_ != nullptr){ //not an error
+    //but this must be thrown over to the DES context to actually execute
+    //we cannot context switch directly from subthread to subthread
+    send_now_self_event_queue(new_callback(this, &operating_system::switch_to_thread, tothread));
+    return;
   }
 
-
-  current_thread_id_ = next_thread->thread_id();
-
-  ctxt.current_thread = tothread.second;
-  ctxt.current_os = this;
-  ctxt.current_aid = ctxt.current_thread->aid();
-  ctxt.current_tid = ctxt.current_thread->tid(  );
-
-  from.first->swap_context(tothread.first);
+  active_thread_ = tothread;
+  active_os() = this;
+  tothread->context()->resume_context(des_context_);
 
   /** back to main thread */
-  current_thread_id_ = old_id;
-  ctxt.current_thread = old_thread;
-  os_debug("size of threadstack %d, switching back to thread %d",
-    threadstack_.size(), current_thread_id_);
+  active_thread_ = nullptr;
 }
 
 void
@@ -577,118 +395,73 @@ operating_system::print_libs(std::ostream &os) const
   }
 }
 
-timestamp
-operating_system::block(key* req)
+void
+operating_system::block()
 {
-#if SSTMAC_SANITY_CHECK
-  valid_keys_.insert(req);
-  if (req == nullptr) {
-    sprockit::abort("operating_system::block:  cannot block a null key pointer");
+  timestamp before = now();
+  //back to main DES thread
+  thread_context* old_context = active_thread_->context();
+  if (old_context == des_context_){
+    spkt_abort_printf("blocking main DES thread on node %d", my_addr_);
   }
+  thread* old_thread = active_thread_;
+  //reset the time flag
+  active_thread_->set_timed_out(false);
+  active_thread_ = nullptr;
+  old_context->pause_context(des_context_);
 
-  if (threadstack_.size() == 1) {
-    sprockit::abort("OS: trying to block the DES thread (bottom of the stack)");
-  }
-#endif
+  //restore state to indicate this thread and this OS are active again
+  active_os() = this;
+  active_thread_ = old_thread;
+  active_thread_->increment_block_counter();
 
-  thread_data_t top = threadstack_.top();
-  req->block_thread(top);
-
-  os_debug("blocking thread %ld with req=%p", current_thread_id_, req);
-
-  int64_t before_ticks = now().ticks_int64();
-
-  os_thread_context& ctxt = current_os_thread_context();
-
-  threadstack_.pop();
-  ctxt.current_thread = threadstack_.top().second;
-  /** Block the currently running thread - and start the next waiting thread */
-  top.first->swap_context(threadstack_.top().first);
-  //I am reactivated
-
-  int64_t after_ticks = now().ticks_int64();
-  int64_t delta_ticks = after_ticks - before_ticks;
+   //collect any statistics associated with the elapsed time
+  timestamp after = now();
+  timestamp elapsed = after - before;
 
   if (call_graph_ && call_graph_active_) {
-    call_graph_->count_trace(delta_ticks, ctxt.current_thread);
+    call_graph_->count_trace(elapsed.ticks(), active_thread_);
   }
 
-  if (ftq_trace_) {
-    ftq_trace_->collect(req->event_typeid(),
-      ctxt.current_aid, ctxt.current_tid,
-      before_ticks, delta_ticks);
+  if (ftq_trace_){
+    ftq_tag tag = active_thread_->tag();
+    ftq_trace_->collect(tag.id(),
+      active_thread_->aid(), active_thread_->tid(),
+      before.ticks(), elapsed.ticks());
+    active_thread_->set_tag(ftq_tag::null);
   }
-
-  os_debug("done blocking thread %ld, size of threadstack is %d",
-    current_thread_id_, threadstack_.size());
-
-  return now();
 }
 
 void
-operating_system::schedule_timeout(timestamp delay, key* k)
+operating_system::block_timeout(timestamp delay)
 {
-  send_delayed_self_event_queue(delay, new timeout_event(this, k));
+  send_delayed_self_event_queue(delay, new timeout_event(this, active_thread_));
+  block();
 }
 
 timestamp
-operating_system::unblock(key* req)
+operating_system::unblock(thread* thr)
 {
-  thread_data_t thr_to_unblock = req->blocked_thread_;
-  thread* thr = thr_to_unblock.second;
-
-  os_debug("unblocking thread %ld on key %p",
-      thr->thread_id(), req);
-
-#if SSTMAC_SANITY_CHECK
-  auto iter = valid_keys_.find(req);
-  if (iter == valid_keys_.end()) {
-    sprockit::abort("operating_system::unblock: unblocking key that I don't have");
-  }
-  valid_keys_.erase(it);
-#endif
-
-  req->clear();
-
   if (thr->is_canceled()){
     //just straight up delete the thread
     //it shall be neither seen nor heard
     delete thr;
   } else {
-    switch_to_thread(thr_to_unblock);
+    switch_to_thread(thr);
   }
 
   return now();
-}
-
-void
-operating_system::start_thread(thread* t)
-{
-#if SSTMAC_HAVE_GRAPHVIZ
-  {
-    void** stack = call_graph_->allocate_trace();
-    t->set_backtrace(stack);
-  }
-#endif
-  add_thread(t);
-#if SSTMAC_ENABLE_DEBUG_SWAP
-  int aid = t->aid().id;
-  int tid = t->tid().id;
-  context_map_[aid][tid] = t->context_;
-#endif
-  switch_to_thread(thread_data_t(t->context_, t));
-
 }
 
 void
 operating_system::join_thread(thread* t)
 {
   if (t->get_state() != thread::DONE) {
-    key* k = key::construct();
-    os_debug("joining thread %ld - thread not done so blocking on key %p",
-        t->thread_id(), k);
-    t->joiners_.push(k);
-    block(k);
+    //key* k = key::construct();
+    os_debug("joining thread %ld - thread not done so blocking on thread %p",
+        t->thread_id(), active_thread_);
+    t->joiners_.push(active_thread_);
+    block();
   }
   else {
     os_debug("joining completed thread %ld", t->thread_id());
@@ -696,41 +469,31 @@ operating_system::join_thread(thread* t)
 }
 
 void
-operating_system::complete_thread(bool succ)
+operating_system::complete_active_thread()
 {
-  thread* thr_todelete = threadstack_.top().second;
-  threading_interface* current_tinfo = threadstack_.top().first;
-  os_thread_context& ctxt = current_os_thread_context();
+  thread* thr_todelete = active_thread_;
 
   //if any threads waiting on the join, unblock them
   os_debug("completing thread %ld", thr_todelete->thread_id());
-  while (thr_todelete->joiners_.size() > 0) {
-    key* blocker = thr_todelete->joiners_.front();
+  while (!thr_todelete->joiners_.empty()) {
+    thread* blocker = thr_todelete->joiners_.front();
     os_debug("thread %ld is unblocking joiner %p",
         thr_todelete->thread_id(), blocker);
     unblock(blocker);
     //to_awake_.push(thr_todelete->joiners_.front());
     thr_todelete->joiners_.pop();
   }
+  active_thread_ = nullptr;
 
-  threadstack_.pop();
-
-  ctxt.current_thread = threadstack_.top().second;
-  threading_interface* next_tinfo = threadstack_.top().first;
-
-  ctxt.to_delete.push_back(thr_todelete);
-
-  //tell the launcher that i'm done
-  app* a = test_cast(app, thr_todelete);
-  if (a) {
-    task_to_thread_.erase(a->sid().task_);
-  }
+  //JJW 11/6/2014 This here is weird
+  //The thread has run out of work and is terminating
+  //However, because of weird thread swapping the DES thread
+  //might still operate on the thread... we need to delay the delete
+  //until the DES thread has completely finished processing its current event
+  send_now_self_event_queue(new delete_thread_event(thr_todelete));
 
   os_debug("completing context for %ld", thr_todelete->thread_id());
-  current_tinfo->complete_context(next_tinfo);
-  // This thread is not permitted to start again.
-  sprockit::abort("operating_system::complete: thread switched in again "
-            "after calling complete and relinquishing stack.");
+  thr_todelete->context()->complete_context(des_context_);
 }
 
 void
@@ -753,7 +516,7 @@ operating_system::register_lib(library* lib)
   if (iter != pending_library_events_.end()){
     const std::list<event*> events = iter->second;
     for (event* ev : events){
-      schedule_now(new_callback(event_location(), lib, &library::incoming_event, ev));
+      send_now_self_event_queue(new_callback(component_id(), lib, &library::incoming_event, ev));
     }
     pending_library_events_.erase(iter);
   }
@@ -795,67 +558,52 @@ operating_system::lib(const std::string& name) const
 }
 
 void
-operating_system::stack_check()
+operating_system::outcast_app_start(int my_rank, int aid, const std::string& app_ns,
+                                  task_mapping::ptr mapping,  sprockit::sim_parameters* app_params,
+                                  bool include_root)
 {
-  thread* thr = operating_system::current_thread();
-  if (!thr) {
-    return;  //main thread
+  int num_ranks = mapping->num_ranks();
+  //job launcher needs to add this - might need it later
+  outcast_iterator iter(my_rank, num_ranks);
+  int ranks[64];
+  int num_to_send = 0;
+  if (include_root){
+    //only send to root
+    num_to_send = 1;
+    ranks[0] = my_rank;
+  } else {
+    num_to_send = iter.forward_to(ranks);
   }
 
-  if (thr->thread_id() == thread::main_thread) {
-    return;
+  for (int r=0; r < num_to_send; ++r){
+    int dst_rank = ranks[r];
+    int dst_nid = mapping->rank_to_node(dst_rank);
+    sw::start_app_event* lev = new start_app_event(aid, app_ns,
+                                     mapping, dst_rank, dst_nid,
+                                     addr(), app_params);
+    node_->get_nic()->send_to_logp_switch(lev);
   }
-
-  void* stack = thr->stack();
-
-  int x;
-  void* testptr = &x;
-
-  //stack is usually allocated backwards - we haven't overrun yet
-  if (testptr > stack) {
-    return;
-  }
-
-  spkt_throw_printf(sprockit::illformed_error,
-                   "stack pointer on thread %d has gone past end of stack",
-                   thr->thread_id());
 }
 
 void
-operating_system::free_thread_stack(void *stack)
+operating_system::start_thread(thread* t)
 {
-  os_thread_context& ctxt = current_os_thread_context();
-  stack_alloc& stackalloc_ = ctxt.stackalloc;
-  stackalloc_.free(stack);
-}
-
-void
-operating_system::add_thread(thread* t)
-{
-  os_thread_context& ctxt = current_os_thread_context();
-  stack_alloc& stackalloc_ = ctxt.stackalloc;
-
-  app* parent = t->parent_app();
-  t->init_thread(
-    thread_id(),
-    des_context_,
-    stackalloc_.alloc(),
-    stackalloc_.stacksize(),
-    NULL, parent->globals_storage());
-
-  threads_.push_back(t);
-}
-
-void
-operating_system::add_application(app* a)
-{
-  if (ftq_trace_){
-    ftq_trace_->register_app(a->aid(), sprockit::printf("app%d", int(a->aid())));
+  if (active_thread_){
+    //crap - can't do this on this thread - need to do on DES thread
+    send_now_self_event_queue(new_callback(this, &operating_system::start_thread, t));
+  } else {
+    active_thread_ = t;
+    active_os() = this;
+    app* parent = t->parent_app();
+    void* stack = stack_alloc::alloc();
+    t->init_thread(
+      parent->params(),
+      threadId(),
+      des_context_,
+      stack,
+      stack_alloc::stacksize(),
+      parent->globals_storage());
   }
-
-  add_thread(a);
-
-  task_to_thread_[a->sid().task_] = a->thread_id();
 }
 
 void
@@ -864,15 +612,15 @@ operating_system::start_app(app* theapp, const std::string& unique_name)
   os_debug("starting app %d:%d on thread %d",
     int(theapp->tid()), int(theapp->aid()), thread_id());
   //this should be called from the actual thread running it
-  init_threading();
-#if SSTMAC_HAVE_GRAPHVIZ
-  {
-    void** stack = call_graph_->allocate_trace();
-    theapp->set_backtrace(stack);
+  init_threading(params_);
+  if (params_->has_param("context")){
+    theapp->params()->add_param("context", params_->get_param("context"));
   }
-#endif
-  add_application(theapp);
-  switch_to_thread(thread_data_t(theapp->context_, theapp));
+  if (ftq_trace_){
+    ftq_trace_->register_app(theapp->aid(), sprockit::printf("app%d", int(theapp->aid())));
+  }
+
+  start_thread(theapp);
 }
 
 bool
@@ -906,49 +654,5 @@ operating_system::handle_event(event* ev)
   }
 }
 
-std::list<app*>
-operating_system::app_ptrs(app_id aid)
-{
-  std::list<app*> ret;
-  std::list<thread*>::iterator iter, end = threads_.end();
-  for (iter = threads_.begin(); iter != end; iter++) {
-    app* a = test_cast(app, *iter);
-    if (a) {
-      if (a->sid().app_ == aid) {
-        ret.push_back(a);
-      }
-    }
-  }
-
-  return ret;
-}
-
-app*
-operating_system::app_ptr(software_id sid)
-{
-  app* ret;
-  std::list<thread*>::iterator iter, end = threads_.end();
-  for (iter = threads_.begin(); iter != end; iter++) {
-    app* a = test_cast(app, *iter);
-    if (a) {
-      if (a->sid() == sid) {
-        return a;
-      }
-    }
-  }
-
-  return ret;
-}
-
 }
 } //end of namespace sstmac
-
-void*
-sstmac_new(unsigned long size){
-  int skip = sstmac::sw::operating_system::static_os_thread_context().skip_next_op_new;
-  if (skip == 0){
-    return ::operator new(size); //call out to non-throwing version
-  } else {
-    return nullptr;
-  }
-}

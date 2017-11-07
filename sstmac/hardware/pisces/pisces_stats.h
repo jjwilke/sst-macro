@@ -227,11 +227,9 @@ class stat_bytes_sent :
 
   virtual ~stat_bytes_sent();
 
-  void record(int port, long bytes){
+  void record(int port, uint32_t bytes){
     port_map_[port] += bytes;
   }
-
-  void simulation_finished(timestamp end) override;
 
   void dump_local_data() override;
 
@@ -267,7 +265,7 @@ class stat_bytes_sent :
  private:
   topology* top_;
 
-  typedef std::map<int, long> port_map;
+  typedef std::map<int, uint64_t> port_map;
   port_map port_map_;
 
   class aggregation

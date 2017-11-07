@@ -54,11 +54,10 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/software/process/app_fwd.h>
 #include <sstmac/software/process/thread_info.h>
 #include <sstmac/software/api/api_fwd.h>
+#include <sstmac/software/launch/job_launcher_fwd.h>
 
 #include <sstmac/common/messages/sst_message_fwd.h>
-#include <sstmac/common/stats/event_trace.h>
 #include <sstmac/common/event_scheduler.h>
-#include <sstmac/software/process/thread_data.h>
 
 #include <sstmac/software/libraries/service_fwd.h>
 #include <sstmac/software/process/ftq_fwd.h>
@@ -71,8 +70,6 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sprockit/debug.h>
 #include <stack>
 #include <queue>
-
-
 
 DeclareDebugSlot(os);
 
@@ -88,59 +85,52 @@ class operating_system :
  public:
   operating_system(sprockit::sim_parameters* params, hw::node* parent);
 
-  struct os_thread_context {
-    thread* current_thread;
-    std::list<thread*> to_delete;
-    operating_system* current_os;
-    stack_alloc stackalloc;
-    app_id current_aid;
-    task_id current_tid;
-    int skip_next_op_new;
-    os_thread_context() :
-      current_thread(nullptr),
-      current_os(nullptr),
-      skip_next_op_new(0)
-    {}
-  };
-
-  static void skip_next_op_new(){
-    static_os_thread_context().skip_next_op_new = true;
-  }
-
   virtual ~operating_system();
 
   std::string to_string() const {
     return "operating system";
   }
 
-  static inline os_thread_context& static_os_thread_context(){
+  static inline operating_system*& static_os_thread_context(){
   #if SSTMAC_USE_MULTITHREAD
     int thr = thread_info::current_physical_thread_id();
-    return os_thread_contexts_[thr];
+    return active_os_[thr];
   #else
-    return os_thread_context_;
+    return active_os_;
   #endif
   }
 
+  inline operating_system*& active_os() {
+#if SSTMAC_USE_MULTITHREAD
+  return active_os_[thread_id_];
+#else
+  return active_os_;
+#endif
+  }
+
   thread* active_thread() const {
-    return current_os_thread_context().current_thread;
+    return active_thread_;
+  }
+
+  int thread_id() const {
+    return thread_id_;
+  }
+
+  int nthread() const {
+    return nthread_;
   }
 
   static void delete_statics();
 
-  static void switch_to_context(int aid, int tid);
-
-  static operating_system* current_os();
-
-  static app_id current_aid();
-
-  static task_id current_tid();
+  static operating_system* current_os(){
+    return static_os_thread_context();
+  }
 
   static library* current_library(const std::string& name);
 
-  static node_id current_node_id();
-
-  static node_id remote_node(int tid);
+  static node_id current_node_id() {
+    return static_os_thread_context()->addr();
+  }
 
   /**
    * @brief execute Execute a compute function.
@@ -153,7 +143,7 @@ class operating_system :
    * @param cat   An optional category labeling the type of
    *              operation
    */
-  void execute(ami::COMP_FUNC, event* data, key_traits::category cat);
+  void execute(ami::COMP_FUNC, event* data);
 
   /**
    * @brief execute Execute a communication function.
@@ -187,9 +177,7 @@ class operating_system :
    * @param data  Event carrying all the data describing the compute
    * @param cb    The callback to invoke when the kernel is complete
    */
-  void execute_kernel(ami::COMP_FUNC func,
-                 event* data,
-                 callback* cb);
+  void execute_kernel(ami::COMP_FUNC func, event* data, callback* cb);
   /**
    * @brief execute Enqueue an operation to perform
    * This function takes place in "kernel" land
@@ -201,44 +189,78 @@ class operating_system :
    * @param data  Event carrying all the data describing the compute
    */
   void async_kernel(ami::SERVICE_FUNC func, event* data);
-
-  static void stack_check();
   
-  timestamp block(key* req);
+  /**
+   * @brief block Block the currently running thread context.
+   * This must be called from an application thread, NOT the DES thread
+   * @param req [in-out] A key that will store blocking data that will be needed
+   *                     for later unblocking
+   * @return
+   */
+  void block();
 
-  timestamp unblock(key* req);
+  void block_timeout(timestamp delay);
 
+  /**
+   * @brief unblock Unblock the thread context associated with the key
+   *        This must be called from the DES thread, NOT an application thread
+   * @param req [in] The key storing blocking data that was previously passed into
+   *                  a block(req) call
+   * @return
+   */
+  timestamp unblock(thread* thr);
+
+  void outcast_app_start(int my_rank, int aid, const std::string& app_ns,
+                      task_mapping_ptr mapping, sprockit::sim_parameters* app_params,
+                      bool include_root = false);
+
+  /**
+   * @brief start_thread Start a thread object and schedule the context switch to it
+   * @param t The thread to start
+   */
   void start_thread(thread* t);
 
-  void join_thread(thread* t);
+  /**
+   * @brief join_thread If this thread created a subthread, join with the given subthread.
+   *                    This should be called from the application thread that spawned the subthread,
+   *                    NOT the DES thread
+   * @param subthread The spawned subthread to join
+   */
+  void join_thread(thread* subthread);
 
-  void complete_thread(bool succ);
+  /**
+   * @brief complete_active_thread Must be called from a currently running application thread, not the DES thread.
+   *                               This returns from the currently running context, closes it out,
+   *                               and schedules resources associated with it (stack, etc) to be cleaned up.
+   */
+  void complete_active_thread();
 
-  library* lib(const std::string& name) const;
-
-  void add_application(app* a);
-
+  /**
+   * @brief start_app
+   * Similar to start_thread, but performs special operations associated
+   *  with a full application rather than just a subthread.
+   * @param a The application to start
+   * @param unique_name A known name for identifying the process across multiple nodes
+   */
   void start_app(app* a, const std::string& unique_name);
 
-  void handle_event(event* ev);
-
-  std::list<app*> app_ptrs(app_id aid);
-
-  app* app_ptr(software_id sid);
-
-  thread_data_t current_context() const {
-    return threadstack_.top();
+  static size_t stacksize(){
+    return sstmac_global_stacksize;
   }
+
+  static thread* current_thread(){
+    return static_os_thread_context()->active_thread();
+  }
+
+  void handle_event(event* ev);
 
   static void shutdown() {
     current_os()->local_shutdown();
   }
 
-  void print_libs(std::ostream& os = std::cout) const;
+  library* lib(const std::string& name) const;
 
-  void set_node(sstmac::hw::node* n){
-    node_ = n;
-  }
+  void print_libs(std::ostream& os = std::cout) const;
 
   hw::node* node() const {
     return node_;
@@ -246,18 +268,6 @@ class operating_system :
 
   node_id addr() const {
     return my_addr_;
-  }
-
-  void schedule_timeout(timestamp delay, key* k);
-
-  void free_thread_stack(void* stack);
-
-  static size_t stacksize(){
-    return sstmac_global_stacksize;
-  }
-
-  static thread* current_thread(){
-    return static_os_thread_context().current_thread;
   }
 
   graph_viz* call_graph() const {
@@ -292,6 +302,8 @@ class operating_system :
    */
   void compute(timestamp t);
 
+  static void init_threads(int nthread);
+
   void kill_node();
 
   void decrement_app_refcount();
@@ -307,20 +319,9 @@ class operating_system :
   }
 
  private:
-  void add_thread(thread* t);
+  void switch_to_thread(thread* tothread);
 
-  void switch_to_thread(thread_data_t tothread);
-
-  void init_threading();
-
-  os_thread_context& current_os_thread_context() const {
-  #if SSTMAC_USE_MULTITHREAD
-    int thr = thread_id();
-    return os_thread_contexts_[thr];
-  #else
-    return os_thread_context_;
-  #endif
-  }
+  void init_threading(sprockit::sim_parameters* params);
 
   friend class library;
 
@@ -333,31 +334,21 @@ class operating_system :
   bool handle_library_event(const std::string& name, event* ev);
 
  private:
+  int thread_id_;
+  int nthread_;
   hw::node* node_;
   std::unordered_map<std::string, library*> libs_;
   std::unordered_map<library*, int> lib_refcounts_;
-  std::unordered_map<void*, std::list<library*> > libs_by_owner_;
+  std::unordered_map<void*, std::list<library*>> libs_by_owner_;
   std::map<std::string, std::list<event*>> pending_library_events_;
+
+  thread* active_thread_;
 
   node_id my_addr_;
 
-  std::list<thread*> threads_;
-
-  std::list<api*> services_;
-
-  std::stack<thread_data_t> threadstack_;
-
-  int current_thread_id_;
-
-  int next_msg_id_;
-
-  std::unordered_map<task_id, long> task_to_thread_;
-
-  std::queue<thread*> to_awake_; // from thread join
-
   /// The caller context (main DES thread).  We go back
   /// to this context on every context switch.
-  threading_interface *des_context_;
+  thread_context *des_context_;
 
   sprockit::sim_parameters* params_;
 
@@ -370,17 +361,10 @@ class operating_system :
   bool call_graph_active_;
 
 #if SSTMAC_USE_MULTITHREAD
-  static std::vector<operating_system::os_thread_context> os_thread_contexts_;
+  static std::vector<operating_system*> active_os_;
 #else
-  static operating_system::os_thread_context os_thread_context_;
+  static operating_system* active_os_;
 #endif
-
-#if SSTMAC_SANITY_CHECK
-  std::set<key*> valid_keys_;
-#endif
-
- private:
-  static os_thread_context cxa_finalize_context_;
 
 };
 

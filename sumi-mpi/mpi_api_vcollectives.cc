@@ -44,6 +44,8 @@ Questions? Contact sst-macro-help@sandia.gov
 
 #include <sumi-mpi/mpi_api.h>
 #include <sumi-mpi/mpi_queue/mpi_queue.h>
+#include <sstmac/software/process/operating_system.h>
+#include <sstmac/software/process/thread.h>
 
 #define start_vcoll(coll, fxn, comm, count, type,...) \
   start_##coll(#fxn,comm,count,type,__VA_ARGS__); \
@@ -72,7 +74,7 @@ mpi_api::start_allgatherv(collectivev_op* op)
 {
   transport::allgatherv(op->tmp_recvbuf, op->tmp_sendbuf,
                   op->recvcounts, op->sendtype->packed_size(), op->tag,
-                  false, options::initial_context, op->comm);
+                  collective::cfg().comm(op->comm).cqId(collective_cq_id()));
 
 }
 
@@ -122,7 +124,7 @@ mpi_api::iallgatherv(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
   collective_op_base* op = start_vcoll(allgatherv, MPI_Iallgatherv, comm, sendcount, sendtype,
                                        recvcounts, displs, recvtype, sendbuf, recvbuf);
   add_immediate_collective(op, req);
-  finish_Impi_call(MPI_Iallgatherv,req);
+  finish_mpi_call(MPI_Iallgatherv);
   return MPI_SUCCESS;
 }
 
@@ -142,7 +144,7 @@ mpi_api::start_alltoallv(collectivev_op* op)
   transport::alltoallv(op->tmp_recvbuf, op->tmp_sendbuf,
                   op->sendcounts, op->recvcounts,
                   op->sendtype->packed_size(), op->tag,
-                  false, options::initial_context, op->comm);
+                  collective::cfg().comm(op->comm).cqId(collective_cq_id()));
 }
 
 collective_op_base*
@@ -213,7 +215,7 @@ mpi_api::ialltoallv(const void *sendbuf, const int *sendcounts,
                                        recvcounts, recvtype, rdispls, sendbuf, recvbuf);
 
   add_immediate_collective(op, req);
-  finish_Impi_call(MPI_Ialltoallv,req);
+  finish_mpi_call(MPI_Ialltoallv);
   return MPI_SUCCESS;
 }
 
@@ -321,7 +323,7 @@ mpi_api::igatherv(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
   collective_op_base* op = start_vcoll(gatherv, MPI_Igatherv, comm, sendcount, sendtype, root,
                                        recvcounts, displs, recvtype, sendbuf, recvbuf);
   add_immediate_collective(op, req);
-  finish_Impi_call(MPI_Igatherv,req);
+  finish_mpi_call(MPI_Igatherv);
   return MPI_SUCCESS;
 }
 
@@ -416,7 +418,7 @@ mpi_api::iscatterv(const void* sendbuf, const int* sendcounts, const int *displs
                                        recvcount, recvtype, sendbuf, recvbuf);
 
   add_immediate_collective(op, req);
-  finish_Impi_call(MPI_Iscatterv,req);
+  finish_mpi_call(MPI_Iscatterv);
   return MPI_SUCCESS;
 }
 

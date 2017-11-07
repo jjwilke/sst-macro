@@ -51,6 +51,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sumi/serialization.h>
 #include <sumi/config.h>
 #include <sumi/sumi_config.h>
+#include <sumi/feature_config.h>
 
 START_SERIALIZATION_NAMESPACE
 template <>
@@ -74,6 +75,9 @@ class message :
  public:
   virtual std::string to_string() const override;
 
+  static const int no_ack = -1;
+  static const int default_cq = 0;
+
   typedef enum {
     header,
     eager_payload,
@@ -90,13 +94,12 @@ class message :
   } payload_type_t;
 
  typedef enum {
+    ping,
     terminate,
     pt2pt,
     bcast,
-    unexpected,
     collective,
     collective_done,
-    ping,
     no_class,
     fake
  } class_t;
@@ -104,8 +107,6 @@ class message :
  public:
   static const int ack_size;
   static const int header_size;
-
-  typedef std::shared_ptr<message> ptr;
 
   message() :
     message(sizeof(message))
@@ -144,10 +145,11 @@ class message :
     class_(cls),
     sender_(sender),
     recver_(recver),
-    transaction_id_(-1),
-    needs_send_ack_(false),
-    needs_recv_ack_(false)
-#if SUMI_COMM_SYNC_STATS
+    send_cq_(-1),
+    recv_cq_(-1),
+    owns_local_buffer_(false),
+    owns_remote_buffer_(false)
+  #if SUMI_COMM_SYNC_STATS
     ,sent_(-1),
     header_arrived_(-1),
     payload_arrived_(-1),
@@ -155,6 +157,8 @@ class message :
 #endif
   {
   }
+
+  virtual ~message();
 
   static const char* tostr(payload_type_t ty);
 
@@ -168,19 +172,31 @@ class message :
 
   virtual void serialize_order(sumi::serializer &ser) override;
 
+  void serialize_buffers(sumi::serializer& ser);
+
   void set_payload_type(payload_type_t ty) {
     payload_type_ = ty;
   }
 
   virtual message* clone() const;
 
-  virtual void buffer_send();
-
   message* clone_ack() const;
 
   message* clone_msg() const {
     return clone();
   }
+
+  void set_owns_local_buffer(bool flag){
+    owns_local_buffer_ = flag;
+  }
+
+  void set_owns_remote_buffer(bool flag){
+    owns_remote_buffer_ = flag;
+  }
+
+  void buffer_remote();
+
+  void buffer_local();
 
   class_t class_type() const {
     return class_;
@@ -206,42 +222,57 @@ class message :
     sender_ = src;
   }
 
-  long byte_length() const {
+  int send_cq() const {
+    return send_cq_;
+  }
+
+  int recv_cq() const {
+    return recv_cq_;
+  }
+
+  uint64_t byte_length() const {
     return num_bytes_;
   }
 
-  void set_byte_length(long bytes) {
+  int cq_id() const {
+    switch (payload_type_){
+     case header:
+     case eager_payload:
+     case software_ack:
+     case rdma_get:
+     case rdma_put:
+     case nvram_get:
+     case failure:
+     case rdma_get_nack:
+     case none: //annoying for now - this is collectives
+      return recv_cq_;
+     case eager_payload_ack:
+     case rdma_put_ack:
+     case rdma_get_ack:
+      return send_cq_;
+    }
+  }
+
+  void set_byte_length(uint64_t bytes) {
     num_bytes_ = bytes;
-  }
-
-  int transaction_id() const {
-    return transaction_id_;
-  }
-
-  void set_transaction_id(int tid) {
-    transaction_id_ = tid;
-  }
-
-  bool has_transaction_id() const {
-    return transaction_id_ >= 0;
   }
 
   virtual void reverse();
 
   bool needs_send_ack() const {
-    return needs_send_ack_;
+    return send_cq_ >= 0;
   }
 
-  void set_needs_send_ack(bool need) {
-    needs_send_ack_ = need;
+  void set_send_cq(int cq){
+    send_cq_ = cq;
   }
 
   bool needs_recv_ack() const {
-    return needs_recv_ack_;
+    return recv_cq_ >= 0;
   }
 
-  void set_needs_recv_ack(bool need) {
-    needs_recv_ack_ = need;
+  void set_recv_cq(int cq) {
+    recv_cq_ = cq;
   }
 
   bool has_payload() const {
@@ -269,6 +300,9 @@ class message :
   sumi::public_buffer& local_buffer() { return local_buffer_; }
   sumi::public_buffer& remote_buffer() { return remote_buffer_; }
 
+  const sumi::public_buffer& local_buffer() const { return local_buffer_; }
+  const sumi::public_buffer& remote_buffer() const { return remote_buffer_; }
+
   void*& eager_buffer() {
    return local_buffer_.ptr;
   }
@@ -279,7 +313,7 @@ class message :
   static void buffer_send(public_buffer& buf, long num_bytes);
 
  protected:
-  long num_bytes_;
+  uint64_t num_bytes_;
   sumi::public_buffer local_buffer_;
   sumi::public_buffer remote_buffer_;
 
@@ -292,11 +326,12 @@ class message :
 
   int recver_;
 
-  int transaction_id_;
+  int send_cq_;
 
-  bool needs_send_ack_;
+  int recv_cq_;
 
-  bool needs_recv_ack_;
+  bool owns_local_buffer_;
+  bool owns_remote_buffer_;
 
 #if SUMI_COMM_SYNC_STATS
  public:
@@ -350,8 +385,6 @@ class system_bcast_message : public message
 {
   ImplementSerializable(system_bcast_message)
  public:
-  typedef std::shared_ptr<system_bcast_message> ptr;
-
   typedef enum {
     shutdown
   } action_t;
@@ -378,6 +411,31 @@ class system_bcast_message : public message
  private:
   int root_;
   action_t action_;
+};
+
+/**
+* @brief The transport_message class
+* Base class for anything that carries a sumi message as a payload
+*/
+class transport_message {
+ public:
+  sumi::message* take_payload() {
+    auto ret = payload_;
+    payload_ = nullptr;
+    return ret;
+  }
+
+  virtual ~transport_message(){
+    if (payload_) delete payload_;
+  }
+
+ protected:
+  transport_message(sumi::message* pload) :
+    payload_(pload) {}
+
+  transport_message(){} //for serialization
+
+  sumi::message* payload_;
 };
 
 }

@@ -87,11 +87,10 @@ class network_message :
    sw::app_id aid,
    node_id to,
    node_id from,
-   long payload_bytes) :
+   uint64_t payload_bytes) :
+    message(from,to),
     aid_(aid),
     needs_ack_(true),
-    toaddr_(to),
-    fromaddr_(from),
     bytes_(payload_bytes),
     type_(null_netmsg_type)
   {
@@ -144,23 +143,15 @@ class network_message :
 
   bool is_nic_ack() const;
 
-  node_id toaddr() const override {
-    return toaddr_;
-  }
-
   virtual void put_on_wire(){}
   virtual void take_off_wire(){}
   virtual void intranode_memmove(){}
-
-  node_id fromaddr() const override {
-    return fromaddr_;
-  }
 
   void set_needs_ack(bool n) {
     needs_ack_ = n;
   }
 
-  virtual bool needs_ack() const override {
+  bool needs_ack() const override {
     //only paylods get acked
     return needs_ack_ && type_ >= payload;
   }
@@ -181,9 +172,11 @@ class network_message :
     type_ = ty;
   }
 
-  virtual void reverse();
+  virtual void reverse(){
+    std::swap(toaddr_, fromaddr_);
+  }
 
-  long byte_length() const override;
+  uint64_t byte_length() const override;
 
  protected:
   void clone_into(network_message* cln) const;
@@ -193,7 +186,7 @@ class network_message :
 
   bool needs_ack_;
 
-  long bytes_;
+  uint64_t bytes_;
 
   type_t type_;
 

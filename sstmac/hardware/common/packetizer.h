@@ -50,6 +50,8 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/hardware/common/packet.h>
 #include <sstmac/common/event_scheduler.h>
 #include <sstmac/hardware/common/recv_cq.h>
+#include <sprockit/allocator.h>
+
 #if SSTMAC_INTEGRATED_SST_CORE
 #include <sstmac/sst_core/integrated_component.h>
 #include <sst/core/interfaces/simpleNetwork.h>
@@ -87,8 +89,8 @@ class packetizer :
 
   void deadlock_check();
 
-  void setInjectionAcker(event_handler* handler){
-    acker_ = handler;
+  void setInjectionAcker(event_link* link){
+    acker_ = link;
   }
 
   int packetSize() const {
@@ -99,8 +101,8 @@ class packetizer :
   virtual link_handler* new_credit_handler() const = 0;
 
  private:
-  virtual void inject(int vn, long bytes,
-                      long byte_offset, message* payload) = 0;
+  virtual void inject(int vn, uint32_t bytes,
+                      uint64_t byte_offset, message* payload) = 0;
 
   virtual bool spaceToSend(int vn, int num_bits) = 0;
 
@@ -109,11 +111,16 @@ class packetizer :
 
   struct pending_send{
     message* msg;
-    long bytes_left;
-    long offset;
+    message* ack;
+    uint64_t bytes_left;
+    uint64_t offset;
+    pending_send() : ack(nullptr) {}
   };
 
-  std::map<int, std::list<pending_send> > pending_;
+  using pending_list = std::list<pending_send, sprockit::thread_safe_allocator<pending_send>>;
+  using pending_alloc = sprockit::thread_safe_allocator<std::pair<const int, pending_list>>;
+
+  std::map<int, pending_list, std::less<int>, pending_alloc> pending_;
 
   int packet_size_;
 
@@ -121,7 +128,7 @@ class packetizer :
 
   packetizer_callback* notifier_;
 
-  event_handler* acker_;
+  event_link* acker_;
 
  protected:
   packetizer(sprockit::sim_parameters* params,

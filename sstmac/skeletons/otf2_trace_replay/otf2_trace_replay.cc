@@ -56,6 +56,17 @@ using std::endl;
 using std::min;
 using std::setw;
 
+RegisterKeywords(
+  { "otf2_timescale", "Compute time multiplier" },
+  { "otf2_terminate_percent", "(Not implemented) Stop trace replay early" },
+  { "otf2_print_progress", "(Not implemented) Prints percentage of trace completion" },
+  { "otf2_metafile", "Path to ank OTF2 trace metafile" },
+  { "otf2_print_mpi_calls", "Print MPI calls as they are parsed" },
+  { "otf2_print_trace_events", "Print trace callbacks as they are called" },
+  { "otf2_print_time_deltas", "Print compute times between MPI events" },
+  { "otf2_print_unknown_callback", "Print when an unknown callback is discovered" }
+);
+
 
 OTF2_GlobalDefReaderCallbacks* create_global_def_callbacks() {
   OTF2_GlobalDefReaderCallbacks* callbacks = OTF2_GlobalDefReaderCallbacks_New();
@@ -115,11 +126,6 @@ void OTF2TraceReplayApp::create_communicators() {
     auto& comm_rank_list = comm_map[i];
 
     uint32_t this_rank = this->tid();
-
-    // skip communicator creation when it doesn't have this rank
-    auto iter = std::find(comm_rank_list.begin(), comm_rank_list.end(), this_rank);
-    if (iter == comm_rank_list.end() && comm_rank_list.empty())
-      continue;
 
     uint32_t* p_rank_list = nullptr;
     int group_size = 0;
@@ -364,11 +370,6 @@ void OTF2TraceReplayApp::verify_replay_success() {
       cout << "  ==> " << setw(15) << call->ToString() << (call->isready?"\tREADY":"\tNOT READY")<< endl;
     }
   }
-}
-
-uint32_t OTF2TraceReplayApp::MapRank(uint32_t local_rank) {
-  auto global_rank = local_to_global_comm_map.find(local_rank);
-  return (global_rank == local_to_global_comm_map.end()) ? local_rank:(*global_rank).second;
 }
 
 bool OTF2TraceReplayApp::PrintTraceEvents() {

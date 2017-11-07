@@ -47,24 +47,121 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/common/sstmac_config.h>
 #include <sstmac/common/serializable.h>
 #include <sstmac/common/sst_event.h>
+#include <sstmac/common/event_manager.h>
 #include <sprockit/output.h>
 #include <sprockit/fileio.h>
 #include <fstream>
+#include <sstream>
 #include <sprockit/keyword_registration.h>
+#include <sprockit/thread_safe.h>
+#include <sprockit/printable.h>
 
 RegisterDebugSlot(parallel);
 
 RegisterKeywords(
-"serialization_buffer_size",
-"serialization_num_bufs_allocation",
-"partition",
-"runtime",
+{ "serialization_buffer_size", "the size of the default serialization buffer for pairwise sends" },
+{ "backup_buffer_size", "the size of the backup buffer in case main buffer overflows" },
+{ "partition", "the partitioning algorithm for assigning work to logical processes" },
+{ "runtime", "the underlying runtime (usually MPI or serial) managing logical processes" },
+{ "sst_nthread", "the number of threads to use" },
+{ "sst_nproc", "the number of parallel procs (ranks) to use" }
 );
 
 namespace sstmac {
 
 const int parallel_runtime::global_root = -1;
 parallel_runtime* parallel_runtime::static_runtime_ = nullptr;
+static int backupSize = 10e6;
+
+char*
+parallel_runtime::comm_buffer::allocateSpace(size_t size, ipc_event_t *ev)
+{
+  uint64_t newOffset = add_int64_atomic(size, &bytesAllocated);
+  uint64_t myStartPos = newOffset - size;
+  if (newOffset > allocSize){
+    lock();
+    //see if I am the first to overrun - if so, set the filled size
+    if (myStartPos <= allocSize){
+      filledSize = myStartPos;
+    }
+
+    //find me a backup buffer meeting my requirements
+    for (backup_buffer& b : backups){
+      if (newOffset < b.maxSize){
+        //great - this is my backup buffer
+        b.filledSize = std::max(newOffset, b.filledSize);
+        unlock();
+        return b.buffer + myStartPos;
+      }
+    }
+
+    uint64_t nextBackupSize = backups.empty() ? backupSize : backups.back().maxSize * 8;
+    while (nextBackupSize < newOffset){
+      nextBackupSize *= 8;
+    }
+
+    //create a new larger backup buffer big enough to hold
+    char* buf = new char[nextBackupSize];
+    backup_buffer b;
+    b.buffer = buf;
+    b.maxSize = nextBackupSize;
+    b.filledSize = newOffset;
+    backups.push_back(b);
+    unlock();
+
+    return buf + myStartPos;
+  } else {
+    //great - good to go, write to this location
+    return storage + myStartPos;
+  }
+}
+
+void
+parallel_runtime::comm_buffer::copyToBackup()
+{
+  if (backups.empty()) return;
+
+  size_t lastFill = 0;
+  size_t fillMark = filledSize;
+  char* finalBuf = backups.back().buffer;
+  char* nextBuf = storage;
+  for (backup_buffer& buf : backups){
+    size_t bytesToFill = fillMark - lastFill;
+    ::memcpy(finalBuf + lastFill, nextBuf + lastFill, bytesToFill);
+    lastFill += bytesToFill;
+    fillMark = buf.filledSize;
+    nextBuf = buf.buffer;
+  }
+}
+
+void
+parallel_runtime::comm_buffer::reset()
+{
+  if (!backups.empty()){
+    int growRatio = bytesAllocated / allocSize;
+    growRatio = std::max(2,growRatio);
+    growRatio = std::min(growRatio, 8);
+    realloc(allocSize*growRatio);
+    for (auto& buf : backups){
+      delete[] buf.buffer;
+    }
+    backups.clear();
+  }
+  filledSize = 0;
+  bytesAllocated = 0;
+}
+
+void
+parallel_runtime::comm_buffer::realloc(size_t size)
+{
+  char* oldAlloc = allocation;
+  allocSize = size;
+  allocation = new char[allocSize+64];
+  storage = allocation;
+  align64(storage);
+  bytesAllocated = 0;
+  if (oldAlloc) delete[] oldAlloc;
+}
 
 void
 parallel_runtime::bcast_string(std::string& str, int root)
@@ -133,7 +230,11 @@ parallel_runtime::init_partition_params(sprockit::sim_parameters *params)
 #else
   //out with the old, in with the new
   if (part_) delete part_;
-  part_ = partition::factory::get_optional_param("partition", SSTMAC_DEFAULT_PARTITION_STRING, params, this);
+  std::string deflt = "block";
+  if (nthread_ == 1 && nproc_ == 1){
+    deflt = "serial";
+  }
+  part_ = partition::factory::get_optional_param("partition", deflt, params, this);
 #endif
 }
 
@@ -156,26 +257,37 @@ parallel_runtime::static_runtime(sprockit::sim_parameters* params)
 void
 parallel_runtime::init_runtime_params(sprockit::sim_parameters *params)
 {
+  num_recvs_done_ = 0;
+  num_sends_done_ = 0;
+  sends_done_.resize(nproc_);
 
   //turn the number of procs and my rank into keywords
   nthread_ = params->get_optional_int_param("sst_nthread", 1);
 
-  buf_size_ = params->get_optional_byte_length_param("serialization_buffer_size", 512);
-  int num_bufs_window = params->get_optional_int_param("serialization_num_bufs_allocation", 100);
+  buf_size_ = params->get_optional_byte_length_param("serialization_buffer_size", 16384);
 
-  size_t allocSize = buf_size_ * num_bufs_window;
+  backupSize = params->get_optional_byte_length_param("backup_buffer_size", 10e6);
 
-  send_buffers_.resize(nthread_);
-  for (int i=0; i < nthread_; ++i) send_buffers_[i].init(allocSize);
+  send_buffers_.resize(nproc_);
+  recv_buffers_.resize(nproc_);
+  for (int i=0; i < nproc_; ++i){
+    send_buffers_[i].realloc(buf_size_);
+    recv_buffers_[i].realloc(buf_size_);
+  }
 
-  recv_buffer_.init(allocSize);
+#if !SSTMAC_USE_MULTITHREAD
+  if (nthread_ > 1){
+    spkt_abort_printf("must compile with --enable-multithread to run with >1 thread");
+  }
+#endif
 }
 
 parallel_runtime::parallel_runtime(sprockit::sim_parameters* params,
                                    int me, int nproc)
   : part_(nullptr),
     me_(me),
-    nproc_(nproc)
+    nproc_(nproc),
+    nthread_(1)
 {
   if (me_ == 0){
     sprockit::output::init_out0(&std::cout);
@@ -192,89 +304,54 @@ parallel_runtime::parallel_runtime(sprockit::sim_parameters* params,
 parallel_runtime::~parallel_runtime()
 {
   if (part_) delete part_;
-  for (auto&& buf : send_buffers_){
-    buf.erase();
-  }
 }
 
-static inline void
-run_serialize(serializer& ser, timestamp t, device_id dst, device_id src, uint32_t seqnum, event* ev)
-{
-  ser & dst;
-  ser & src;
-  ser & seqnum;
-  ser & t;
-  ser & ev;
-}
-
+#if !SSTMAC_INTEGRATED_SST_CORE
 void
-parallel_runtime::send_event(int thread_id,
-  timestamp t,
-  device_id dst,
-  device_id src,
-  uint32_t seqnum,
-  event* ev)
+parallel_runtime::run_serialize(serializer& ser, ipc_event_t* iev)
 {
-#if SSTMAC_INTEGRATED_SST_CORE
-  spkt_throw_printf(sprockit::unimplemented_error,
-      "parallel_runtime::send_event: should not be called on integrated core");
-#else
+  ser & iev->ser_size; //this must be first!!!
+  ser & iev->dst;  //this must be first!!!
+  ser & iev->t;
+  ser & iev->src;
+  ser & iev->seqnum;
+  ser & iev->port;
+  ser & iev->rank;
+  ser & iev->credit;
+  ser & iev->ev;
+}
+
+void parallel_runtime::send_event(ipc_event_t* iev)
+{
+  uint32_t overhead = sizeof(ipc_event_base);
 
   sprockit::serializer ser;
-  comm_buffer& buff = send_buffers_[thread_id];
-  //optimistically try packing into ready buffer
-  bool failed = true;
-  void* sendPtr = buff.ptr;
-  while (failed){
-    ser.start_packing((char*)sendPtr, buff.remaining);
-    try {
-      run_serialize(ser,t,dst,src,seqnum,ev);
-      failed = false;
-    } catch (sprockit::ser_buffer_overrun& e) {
-      //huh, oops
-      buff.grow();
-      sendPtr = buff.ptr;
-    }
-  }
-  buff.shift(ser.packer().size());
-
-  int lp;
-  switch (dst.type()){
-    case device_id::router:
-      lp = part_->lpid_for_switch(dst.id());
-      break;
-    case device_id::logp_overlay:
-      lp = dst.id();
-      break;
-    default:
-      spkt_abort_printf("Invalid IPC handler of type %d", dst.type());
-  }
-
-  //event_debug("On rank %d, sending event from %d:%d to %d:%d of size %d",
-  //            me(), src.id(), src.type(), dst.id(), dst.type(), ser.packer().size());
-
-  lock();
-  do_send_message(lp, sendPtr, ser.packer().size());
-  unlock();
-#endif
+  ser.start_sizing();
+  ser & iev->ev;
+  iev->ser_size = overhead + ser.size();
+  align64(iev->ser_size);
+  comm_buffer& buff = send_buffers_[iev->rank];
+  char* ptr = buff.allocateSpace(iev->ser_size, iev);
+  ser.start_packing(ptr, iev->ser_size);
+  debug_printf(sprockit::dbg::parallel, "sending event of size %lu to LP %d at t=%10.6e: %s",
+               iev->ser_size, iev->rank, iev->t.sec(),
+               sprockit::to_string(iev->ev).c_str());
+  run_serialize(ser, iev);
 }
+#endif
 
 void
-parallel_runtime::send_recv_messages(std::vector<void*>& recv_buffers)
+parallel_runtime::reset_send_recv()
 {
-  if (nproc_ == 1)
-    return;
-
-  if (recv_buffers.size()){
-    sprockit::abort("recv buffers should be empty in send/recv messages");
+  for (int i=0; i < num_sends_done_; ++i){
+    send_buffers_[sends_done_[i]].reset();
   }
-  do_send_recv_messages(recv_buffers);
-
-  //and all the send buffers are now done
-  for (int t=0; t < nthread(); ++t){
-    send_buffers_[t].reset();
+  for (int i=0; i < num_recvs_done_; ++i){
+    recv_buffers_[i].reset();
   }
-  recv_buffer_.reset();
+  num_sends_done_ = 0;
+  num_recvs_done_ = 0;
 }
+
 
 }

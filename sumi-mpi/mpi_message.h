@@ -55,21 +55,17 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/software/process/operating_system_fwd.h>
 #include <sumi-mpi/mpi_protocol/mpi_protocol_fwd.h>
 #include <sumi/message.h>
+#include <sprockit/thread_safe_new.h>
 
 namespace sumi {
 
-/**
- * A specialization of networkdata that contains envelope information
- * relevant to MPI messaging.
- */
 class mpi_message final :
-  public sumi::message
+  public sumi::message,
+  public sprockit::thread_safe_new<mpi_message>
 {
   ImplementSerializable(mpi_message)
 
  public:
-  typedef std::shared_ptr<mpi_message> ptr;
-  typedef std::shared_ptr<const mpi_message> const_ptr;
   typedef uint64_t id;
 
   typedef enum {
@@ -94,17 +90,23 @@ class mpi_message final :
 
   ~mpi_message() throw ();
 
-  sumi::message* clone() const override;
+  sumi::mpi_message* clone_me() const {
+    mpi_message* cln = new mpi_message;
+    clone_into(cln);
+    return cln;
+  }
+
+  sumi::message* clone() const override {
+    return clone_me();
+  }
 
   void serialize_order(serializer& ser) override;
 
-  long payload_bytes() const {
-    return count_ * type_packed_size_;
+  uint64_t payload_bytes() const {
+    return uint64_t(count_) * uint64_t(type_packed_size_);
   }
 
   mpi_protocol* protocol() const;
-
-  void put_on_wire();
 
   void set_protocol(mpi_protocol* protocol);
 
@@ -184,14 +186,8 @@ class mpi_message final :
     return in_flight_;
   }
 
-  void set_already_buffered(bool flag){
-    already_buffered_ = flag;
-  }
-
  protected:
   void clone_into(mpi_message* cln) const;
-
-  void buffer_send() override;
 
  protected:
   int src_rank_;
@@ -206,7 +202,6 @@ class mpi_message final :
   content_type_t content_type_;
   int protocol_;
   bool in_flight_;
-  bool already_buffered_;
 
 };
 

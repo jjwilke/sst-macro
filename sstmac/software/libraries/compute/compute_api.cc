@@ -47,62 +47,65 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/software/process/app.h>
 #include <sstmac/software/libraries/compute/compute_api.h>
 
-extern "C" int
-sstmac_sleep(unsigned int secs){
+using sstmac::timestamp;
+using os = sstmac::sw::operating_system;
+
+extern "C" int sstmac_sleep(unsigned int secs){
+  os::current_os()->sleep(timestamp(secs, timestamp::seconds));
+  return 0;
+}
+
+extern "C" int sstmac_usleep(unsigned int usecs){
+  os::current_os()->sleep(timestamp(usecs, timestamp::microseconds));
+  return 0;
+}
+
+extern "C" int sstmac_nanosleep(unsigned int nanosecs){
+  os::current_os()->sleep(timestamp(nanosecs, timestamp::nanoseconds));
+  return 0;
+}
+
+extern "C" int sstmac_msleep(unsigned int msecs){
+  os::current_os()->sleep(timestamp(msecs, timestamp::milliseconds));
+  return 0;
+}
+
+extern "C" int sstmac_fsleep(double secs){
   sstmac::sw::operating_system::current_thread()->parent_app()->sleep(sstmac::timestamp(secs));
   return 0;
 }
 
-extern "C" int
-sstmac_usleep(unsigned int usecs){
-  sstmac::sw::operating_system::current_thread()->parent_app()->sleep(sstmac::timestamp(usecs*1e-6));
-  return 0;
-}
-
-extern "C" int
-sstmac_fsleep(double secs){
-  sstmac::sw::operating_system::current_thread()->parent_app()->sleep(sstmac::timestamp(secs));
-  return 0;
-}
-
-extern "C" void
-sstmac_compute(double secs){
+extern "C" void sstmac_compute(double secs){
   sstmac::sw::operating_system::current_thread()->parent_app()->compute(sstmac::timestamp(secs));
 }
 
-extern "C" void
-sstmac_memread(uint64_t bytes){
+extern "C" void sstmac_memread(uint64_t bytes){
   sstmac::sw::operating_system::current_thread()->parent_app()
     ->compute_block_read(bytes);
 }
 
-extern "C" void
-sstmac_memwrite(uint64_t bytes){
+extern "C" void sstmac_memwrite(uint64_t bytes){
   sstmac::sw::operating_system::current_thread()->parent_app()
     ->compute_block_write(bytes);
 }
 
-extern "C" void
-sstmac_memcpy(uint64_t bytes){
+extern "C" void sstmac_memcpy(uint64_t bytes){
   sstmac::sw::operating_system::current_thread()->parent_app()
     ->compute_block_memcpy(bytes);
 }
 
-extern "C" void
-sstmac_compute_detailed(uint64_t nflops, uint64_t nintops, uint64_t bytes){
+extern "C" void sstmac_compute_detailed(uint64_t nflops, uint64_t nintops, uint64_t bytes){
   sstmac::sw::operating_system::current_thread()->parent_app()
     ->compute_detailed(nflops, nintops, bytes);
 }
 
-extern "C" void
-sstmac_compute_loop(uint64_t num_loops, uint32_t nflops_per_loop,
+extern "C" void sstmac_compute_loop(uint64_t num_loops, uint32_t nflops_per_loop,
                     uint32_t nintops_per_loop, uint32_t bytes_per_loop){
   sstmac::sw::operating_system::current_thread()->parent_app()
     ->compute_loop(num_loops, nflops_per_loop, nintops_per_loop, bytes_per_loop);
 }
 
-extern "C" void
-sstmac_compute_loop2(uint64_t isize, uint64_t jsize,
+extern "C" void sstmac_compute_loop2(uint64_t isize, uint64_t jsize,
                     uint32_t nflops_per_loop,
                     uint32_t nintops_per_loop, uint32_t bytes_per_loop){
   uint64_t num_loops = isize * jsize;

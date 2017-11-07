@@ -69,7 +69,6 @@ mpi_message::mpi_message(int src, int dst, int count,
   seqnum_(seqnum), msgid_(msgid),
   content_type_(null_content),
   in_flight_(false),
-  already_buffered_(false),
   protocol_(protocol->get_prot_id())
 {
 }
@@ -96,14 +95,6 @@ mpi_message::recompute_bytes()
   }
 }
 
-sumi::message*
-mpi_message::clone() const
-{
-  mpi_message* cln = new mpi_message;
-  clone_into(cln);
-  return cln;
-}
-
 void
 mpi_message::serialize_order(serializer& ser)
 {
@@ -120,7 +111,6 @@ mpi_message::serialize_order(serializer& ser)
   ser & (content_type_);
   ser & (in_flight_);
   ser & (protocol_);
-  ser & (already_buffered_);
 }
 
 void
@@ -139,15 +129,6 @@ mpi_message::clone_into(mpi_message* cln) const
   cln->protocol_ = protocol_;
   cln->in_flight_ = in_flight_;
   cln->type_packed_size_ = type_packed_size_;
-  cln->already_buffered_ = already_buffered_;
-}
-
-void
-mpi_message::buffer_send()
-{
-  if (!already_buffered_){
-    message::buffer_send();
-  }
 }
 
 mpi_message::~mpi_message() throw ()
@@ -190,10 +171,11 @@ mpi_message::to_string() const
      << ", src=" << src_rank_
      << ", dst=" << dst_rank_
      << ", tag=" << tag_
+     << ", msgid=" << msgid_ 
      << ", commid" << commid_;
 
   if (in_flight_) {
-    ss << ", seq=(ignored)" << seqnum_;
+    ss << ", seq=" << seqnum_ << "(ignored)";
   }
   else {
     ss << ", seq=" << seqnum_;

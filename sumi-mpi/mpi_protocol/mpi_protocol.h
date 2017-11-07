@@ -46,6 +46,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #define sstmac_software_libraries_mpi_MPIPROTOCOL_H
 
 #include <sumi-mpi/mpi_queue/mpi_queue_fwd.h>
+#include <sumi-mpi/mpi_api_fwd.h>
 #include <sumi-mpi/mpi_queue/mpi_queue_send_request_fwd.h>
 #include <sumi-mpi/mpi_queue/mpi_queue_recv_request_fwd.h>
 #include <sumi-mpi/mpi_message.h>
@@ -76,7 +77,7 @@ class mpi_protocol : public sprockit::printable {
    * @param queue
    * @param msg
    */
-  virtual void send_header(mpi_queue* queue, const mpi_message::ptr& msg) = 0;
+  virtual void send_header(mpi_queue* queue, mpi_message* msg) = 0;
 
   /**
    * @brief incoming_header  When the header from #send_header
@@ -84,7 +85,7 @@ class mpi_protocol : public sprockit::printable {
    * @param queue The queue the header arrived at
    * @param msg The header
    */
-  virtual void incoming_header(mpi_queue* queue, const mpi_message::ptr& msg);
+  virtual void incoming_header(mpi_queue* queue, mpi_message* msg);
 
   /**
    * @brief incoming_header  When the header from #send_header
@@ -96,7 +97,7 @@ class mpi_protocol : public sprockit::printable {
    * @param req A descriptor for the recv. If non-null,
    *            the recv has already been posted.
    */
-  virtual void incoming_header(mpi_queue* queue, const mpi_message::ptr& msg,
+  virtual void incoming_header(mpi_queue* queue, mpi_message* msg,
                   mpi_queue_recv_request* req);
 
   /**
@@ -108,7 +109,7 @@ class mpi_protocol : public sprockit::printable {
    * @param queue The queue the header arrived at
    * @param msg The header
    */
-  virtual void incoming_payload(mpi_queue* queue, const mpi_message::ptr& msg);
+  virtual void incoming_payload(mpi_queue* queue, mpi_message* msg);
 
 
   /**
@@ -122,7 +123,7 @@ class mpi_protocol : public sprockit::printable {
    * @param req A descriptor for the recv. If non-null,
    *            the recv has already been posted.
    */
-  virtual void incoming_payload(mpi_queue* queue, const mpi_message::ptr& msg,
+  virtual void incoming_payload(mpi_queue* queue, mpi_message* msg,
                    mpi_queue_recv_request* req);
 
   /**
@@ -131,7 +132,7 @@ class mpi_protocol : public sprockit::printable {
    * @param msg   The message to be sent
    * @param buffer The buffer corresponding to the send
    */
-  virtual void configure_send_buffer(mpi_queue* queue, const mpi_message::ptr& msg,
+  virtual void configure_send_buffer(mpi_queue* queue, mpi_message* msg,
                                      void* buffer, mpi_type* typeobj) = 0;
 
   virtual bool send_needs_completion_ack() const = 0;
@@ -154,8 +155,7 @@ class mpi_protocol : public sprockit::printable {
   static void delete_statics();
 
  protected:
-  void* fill_send_buffer(const mpi_message::ptr &msg,
-                         void *buffer, mpi_type *typeobj);
+  void* fill_send_buffer(mpi_message*msg, void *buffer, mpi_type *typeobj);
 };
 
 /**
@@ -187,14 +187,14 @@ class eager0 final : public mpi_protocol
     return true;
   }
 
-  void configure_send_buffer(mpi_queue* queue, const mpi_message::ptr& msg,
+  void configure_send_buffer(mpi_queue* queue, mpi_message* msg,
                              void* buffer, mpi_type* typeobj) override;
 
-  void send_header(mpi_queue* queue, const mpi_message::ptr& msg) override;
+  void send_header(mpi_queue* queue, mpi_message* msg) override;
 
-  void incoming_payload(mpi_queue* queue, const mpi_message::ptr& msg) override;
+  void incoming_payload(mpi_queue* queue, mpi_message* msg) override;
 
-  void incoming_payload(mpi_queue* queue, const mpi_message::ptr& msg,
+  void incoming_payload(mpi_queue* queue, mpi_message* msg,
                    mpi_queue_recv_request* req) override;
 
   PROTOCOL_ID get_prot_id() const override {
@@ -229,7 +229,7 @@ class eager1 : public mpi_protocol
     return false;
   }
 
-  void configure_send_buffer(mpi_queue* queue, const mpi_message::ptr& msg,
+  void configure_send_buffer(mpi_queue* queue, mpi_message* msg,
                              void* buffer, mpi_type* typeobj) override;
 
   bool send_needs_nic_ack() const override {
@@ -240,11 +240,11 @@ class eager1 : public mpi_protocol
     return true;
   }
 
-  void send_header(mpi_queue* queue, const mpi_message::ptr& msg) override;
+  void send_header(mpi_queue* queue, mpi_message* msg) override;
 
-  void incoming_header(mpi_queue* queue, const mpi_message::ptr& msg) override;
+  void incoming_header(mpi_queue* queue, mpi_message* msg) override;
 
-  void incoming_header(mpi_queue* queue, const mpi_message::ptr& msg,
+  void incoming_header(mpi_queue* queue, mpi_message* msg,
                   mpi_queue_recv_request* req) override;
 
 };
@@ -272,9 +272,9 @@ class eager1_singlecpy final : public eager1
     return EAGER1_SINGLECPY;
   }
 
-  void incoming_payload(mpi_queue* queue, const mpi_message::ptr& msg) override;
+  void incoming_payload(mpi_queue* queue, mpi_message* msg) override;
 
-  void incoming_payload(mpi_queue* queue, const mpi_message::ptr& msg,
+  void incoming_payload(mpi_queue* queue, mpi_message* msg,
                    mpi_queue_recv_request* req) override;
 
 };
@@ -301,9 +301,9 @@ class eager1_doublecpy final : public eager1
     return EAGER1_DOUBLECPY;
   }
 
-  void incoming_payload(mpi_queue* queue, const mpi_message::ptr& msg) override;
+  void incoming_payload(mpi_queue* queue, mpi_message* msg) override;
 
-  void incoming_payload(mpi_queue* queue, const mpi_message::ptr& msg,
+  void incoming_payload(mpi_queue* queue, mpi_message* msg,
                    mpi_queue_recv_request* req) override;
 
 };
@@ -320,8 +320,8 @@ class rendezvous_protocol : public mpi_protocol
   virtual ~rendezvous_protocol(){}
 
  protected:
-  sstmac::timestamp rdma_pin_delay_;
   bool software_ack_;
+  bool pin_delay_;
 
 };
 
@@ -354,14 +354,14 @@ class rendezvous_get final : public rendezvous_protocol
     return software_ack_;
   }
 
-  void send_header(mpi_queue* queue, const mpi_message::ptr& msg) override;
+  void send_header(mpi_queue* queue, mpi_message* msg) override;
 
-  void incoming_header(mpi_queue* queue, const mpi_message::ptr& msg) override;
+  void incoming_header(mpi_queue* queue, mpi_message* msg) override;
 
-  void incoming_header(mpi_queue* queue, const mpi_message::ptr& msg,
+  void incoming_header(mpi_queue* queue, mpi_message* msg,
                    mpi_queue_recv_request* req) override;
 
-  void incoming_payload(mpi_queue* queue, const mpi_message::ptr& msg) override;
+  void incoming_payload(mpi_queue* queue, mpi_message* msg) override;
 
   std::string to_string() const override {
     return "rendezvous protocol rdma";
@@ -371,7 +371,7 @@ class rendezvous_get final : public rendezvous_protocol
     return RENDEZVOUS_GET;
   }
 
-  void configure_send_buffer(mpi_queue* queue, const mpi_message::ptr& msg,
+  void configure_send_buffer(mpi_queue* queue, mpi_message* msg,
                              void* buffer, mpi_type* typeobj) override;
 
 };

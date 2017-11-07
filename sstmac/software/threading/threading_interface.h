@@ -49,30 +49,54 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <errno.h>
 #include <cstring>
 #include <iostream>
+#include <sprockit/factories/factory.h>
 
 namespace sstmac {
 namespace sw {
 
 
-class threading_interface
+class thread_context
 {
  public:
-  virtual ~threading_interface() {}
+  DeclareFactory(thread_context)
 
-  virtual threading_interface* copy() = 0;
+  virtual ~thread_context() {}
+
+  virtual thread_context* copy() const = 0;
 
   virtual void init_context() = 0;
 
   virtual void destroy_context() = 0;
 
+  /**
+   * @brief start_context
+   * @param physical_thread_id  An optional ID for
+   * @param stack
+   * @param stacksize
+   * @param args
+   * @param globals_storage
+   * @param from
+   */
   virtual void start_context(int physical_thread_id,
-                void *stack, size_t stacksize, void
-                (*func)(void*), void *args, threading_interface *yield_to,
-                void* globals_storage) = 0;
+                void *stack, size_t stacksize,
+                void (*func)(void*), void *args,
+                void* globals_storage, thread_context* from) = 0;
 
-  virtual void swap_context(threading_interface* to) = 0;
+  virtual void resume_context(thread_context* from) = 0;
 
-  virtual void complete_context(threading_interface* to) = 0;
+  virtual void pause_context(thread_context* to) = 0;
+
+  /**
+   * @brief complete_context Perform all cleanup operations to end this context
+   * @param to
+   */
+  virtual void complete_context(thread_context* to) = 0;
+
+  static std::string default_threading();
+
+ protected:
+  thread_context() {}
+
 };
 }
 } // end of namespace sstmac

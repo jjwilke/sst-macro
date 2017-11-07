@@ -109,7 +109,8 @@ congestion_spyplot::congestion_spyplot(sprockit::sim_parameters* params, event_s
 
 congestion_spyplot::~congestion_spyplot()
 {
-  if (congestion_spyplot_) delete congestion_spyplot_;
+  //these get delete by stats system
+  //if (congestion_spyplot_) delete congestion_spyplot_;
 }
 
 void
@@ -142,7 +143,8 @@ delay_histogram::delay_histogram(sprockit::sim_parameters *params, event_schedul
 
 delay_histogram::~delay_histogram()
 {
-  if (congestion_hist_) delete congestion_hist_;
+  //these get deleted by stats systems
+  //if (congestion_hist_) delete congestion_hist_;
 }
 
 void
@@ -200,7 +202,7 @@ multi_stats::collect_single_event(const pkt_arbitration_t &st)
 
 bytes_sent_collector::~bytes_sent_collector()
 {
-  if (bytes_sent_) delete bytes_sent_;
+  //if (bytes_sent_) delete bytes_sent_;
 }
 
 bytes_sent_collector::bytes_sent_collector(sprockit::sim_parameters *params,
@@ -219,7 +221,7 @@ bytes_sent_collector::collect_single_event(const pkt_arbitration_t& st)
 
 byte_hop_collector::~byte_hop_collector()
 {
-  delete byte_hops_;
+  //delete byte_hops_;
 }
 
 byte_hop_collector::byte_hop_collector(sprockit::sim_parameters *params, event_scheduler* parent)
@@ -240,11 +242,10 @@ void
 stat_bytes_sent::output_switch(int sid, std::fstream& data_str)
 {
   port_map& pmap = global_aggregation_[sid];
-  port_map::iterator it, end = pmap.end();
-  long total = 0;
-  for (it=pmap.begin(); it != end; ++it){
-    int port = it->first;
-    long bytes = it->second;
+  uint64_t total = 0;
+  for (auto& pair : pmap){
+    int port = pair.first;
+    uint64_t bytes = pair.second;
     total += bytes;
     //coordinates neighbor_coords = top->neighbor_at_port(switch_id(sid), port);
     data_str << sprockit::printf("\t%3d %12ld\n", port, bytes);
@@ -265,7 +266,7 @@ stat_bytes_sent::dump_global_data()
   std::fstream data_str;
   check_open(data_str, data_file);
   for (int i=0; i < num_switches; ++i){
-    data_str << sprockit::printf("Switch %s\n", top_->label(device_id(i, device_id::router)).c_str());
+    data_str << sprockit::printf("Switch %d\n", i);
     output_switch(i, data_str);
   }
   data_str.close();
@@ -388,12 +389,6 @@ stat_bytes_sent::reduce(stat_collector *coll)
     local_aggregation_ = new aggregation;
   }
   local_aggregation_->append(input->id(), input->port_map_);
-}
-
-void
-stat_bytes_sent::simulation_finished(timestamp end)
-{
-  //no op
 }
 
 }

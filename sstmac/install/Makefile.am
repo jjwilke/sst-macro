@@ -9,6 +9,8 @@
 #   SST/macroscale directory.
 #
 
+include $(top_srcdir)/Makefile.common
+
 if INTEGRATED_SST_CORE
 noinst_LTLIBRARIES = libsstmac.la
 else
@@ -43,7 +45,6 @@ if USE_MPIPARALLEL
 libsstmac_la_LIBADD += ../backends/mpi/libsstmac_mpi_runtime.la 
 endif
 
-
 SUBDIRS = $(STD_SUBDIRS) 
 DIST_SUBDIRS = $(STD_SUBDIRS) 
 
@@ -57,7 +58,7 @@ nodist_EXTRA_libmacro_la_SOURCES = dummy.cxx
 
 libmacro_la_LIBADD = \
   ../../sprockit/sprockit/libspkt_temp.la \
-  libsstmac.la
+  libsstmac.la 
 
 libmacro_la_LDFLAGS = -module -shared -version-info @SSTMAC_LIBVERSION@
 

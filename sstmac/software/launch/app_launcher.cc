@@ -71,13 +71,20 @@ app_launcher::incoming_event(event* ev)
   start_app_event* lev = safe_cast(start_app_event, ev);
   if (lev->type() == launch_event::Start){
     task_mapping::add_global_mapping(lev->aid(), lev->unique_name(), lev->mapping());
+
+    //if necessary, bcast this to whomever else needs it
+    os_->outcast_app_start(lev->tid(), lev->aid(), lev->unique_name(),
+                         lev->mapping(), &lev->app_params());
+
     software_id sid(lev->aid(), lev->tid());
     sprockit::sim_parameters* app_params = new sprockit::sim_parameters(&lev->app_params());
     app* theapp = app::factory::get_param("name", app_params, sid, os_);
     theapp->set_unique_name(lev->unique_name());
     int intranode_rank = num_apps_launched_[lev->aid()]++;
     int core_affinity = lev->core_affinity(intranode_rank);
-    theapp->set_affinity(core_affinity);
+    if (core_affinity != thread::no_core_affinity){
+      theapp->set_affinity(core_affinity);
+    }
     os_->start_app(theapp, lev->unique_name());
   }
   delete lev;

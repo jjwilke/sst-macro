@@ -247,7 +247,7 @@ As with the NIC and node, the memory model class can have a complex implementati
 but it must funnel things through the a common function.
 
 \begin{CppCode}
-virtual void access(long bytes, double max_bw) = 0;
+virtual void access(uint64_t bytes, double max_bw) = 0;
 \end{CppCode}
 
 This function is intended to be called from an application user-space thread.

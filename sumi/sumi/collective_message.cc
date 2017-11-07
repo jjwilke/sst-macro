@@ -86,18 +86,10 @@ std::string
 collective_work_message::to_string() const
 {
   return sprockit::printf(
-    "message %p for collective %s event %s "
+    "message for collective %s event %s "
     "recver=%d(%d) sender=%d(%d) nbytes=%d round=%d tag=%d",
-        this, collective::tostr(type_), message::tostr(message::payload_type()),
+        collective::tostr(type_), message::tostr(message::payload_type()),
         dense_recver_, recver(), dense_sender_, sender(), byte_length(), round_, tag_);
-}
-
-void
-collective_work_message::append_failed(const thread_safe_set<int>& failed)
-{
-  thread_safe_set<int>::iterator end = failed.start_iteration();
-  failed_procs_.insert(failed.begin(), end);
-  failed.end_iteration();
 }
 
 void
@@ -126,5 +118,15 @@ collective_work_message::reverse()
   dense_recver_ = dense_sender_;
   dense_sender_ = tmp;
 }
+
+#ifdef FEATURE_TAG_SUMI_RESILIENCE
+void
+collective_work_message::append_failed(const thread_safe_set<int>& failed)
+{
+  thread_safe_set<int>::iterator end = failed.start_iteration();
+  failed_procs_.insert(failed.begin(), end);
+  failed.end_iteration();
+}
+#endif
 
 }

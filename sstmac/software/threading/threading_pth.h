@@ -51,35 +51,42 @@ Questions? Contact sst-macro-help@sandia.gov
 namespace sstmac {
 namespace sw {
 
-class threading_pth : public threading_interface
+class threading_pth : public thread_context
 {
+ public:
+  FactoryRegister("pth", thread_context, threading_pth)
+
+  /** nothing */
+  threading_pth(sprockit::sim_parameters* params)
+  {
+  }
+
+  virtual ~threading_pth() {}
+
+  thread_context* copy() const override {
+    return new threading_pth(nullptr);
+  }
+
+  void init_context() override;
+
+  void destroy_context() override;
+
+  void start_context(int physical_thread_id, void *stack, size_t stacksize, void
+                (*func)(void*), void *args, void* globals_storage,
+                thread_context* from) override;
+
+  void resume_context(thread_context* from) override;
+
+  void pause_context(thread_context *to) override;
+
+  void complete_context(thread_context *to) override {
+    pause_context(to);
+  }
+
   typedef pth_uctx_t threadcontext_t;
 
  private:
   threadcontext_t context_;
-
- public:
-  virtual ~threading_pth() {}
-
-  virtual
-  threading_interface* copy() {
-    return new threading_pth();
-  }
-
-  virtual void init_context();
-
-  virtual void destroy_context();
-
-  virtual void start_context(int physical_thread_id, void *stack, size_t stacksize, void
-                (*func)(void*), void *args, threading_interface *yield_to,
-                void* globals_storage);
-
-  virtual void swap_context(threading_interface *to);
-
-  virtual void complete_context( threading_interface *to) {
-    swap_context(to);
-  }
-
 };
 
 }

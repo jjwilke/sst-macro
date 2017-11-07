@@ -74,29 +74,28 @@ const task_id thread::main_thread_tid(-1);
 // Private method that gets called by the scheduler.
 //
 void
-thread::init_thread(int physical_thread_id, threading_interface* threadcopy, void *stack,
-                    int stacksize, threading_interface *yield_to, void* globals_storage)
+thread::init_thread(sprockit::sim_parameters* params,
+  int physical_thread_id, thread_context* des_thread, void *stack,
+  int stacksize, void* globals_storage)
 {
+  thread_info::set_thread_id(stack, physical_thread_id);
+
   stack_ = stack;
-  stacksize_ = stacksize;
 
   init_id();
 
   state_ = INITIALIZED;
 
-  context_ = threadcopy->copy();
+  context_ = des_thread->copy();
 
-  threadinfo* info = new threadinfo();
-  info->thethread = this;
-
-  context_->start_context(physical_thread_id, stack, stacksize, run_routine, info,
-                          yield_to, globals_storage);
+  context_->start_context(physical_thread_id, stack, stacksize,
+                          run_routine, this, globals_storage, des_thread);
 }
 
-device_id
-thread::event_location() const
+uint32_t
+thread::component_id() const
 {
-  return os_->event_location();
+  return os_->component_id();
 }
 
 thread*
@@ -120,47 +119,17 @@ thread::clear_subthread_from_parent_app()
   }
 }
 
-/**
- * This can get called by anyone to have a thread exit, including during normal app termination
- */
-void
-thread::kill()
-{
-  // We are done, ask the scheduler to remove this task from the
-  state_ = DONE;
-
-  clear_subthread_from_parent_app();
-
-  // This is a little bit weird - kill is happening on a non-DES thread stack
-  os_->complete_thread(true);
-
-  //we will never actually arrive here, instead the os context switches out
-}
-
 void
 thread::cleanup()
 {
+  if (state_ != CANCELED){
+    clear_subthread_from_parent_app();
+  }
+  // We are done, ask the scheduler to remove this task from the
+  state_ = DONE;
+
+  os_->complete_active_thread();
 }
-
-class delete_thread_event :
-  public event_queue_entry
-{
- public:
-  delete_thread_event(thread* thr) :
-    thr_(thr),
-    event_queue_entry(thr->os()->event_location(), thr->os()->event_location())
-  {
-  }
-
-  void
-  execute(){
-    thr_->cleanup();
-    delete thr_;
-  }
-
- protected:
-  thread* thr_;
-};
 
 //
 // Run routine that defines the initial context for this task.
@@ -168,9 +137,7 @@ class delete_thread_event :
 void
 thread::run_routine(void* threadptr)
 {
-  threadinfo* info = (threadinfo*) threadptr;
-  thread* self = info->thethread;
-  delete info;
+  thread* self = (thread*) threadptr;
 
   // Go.
   if (self->is_initialized()) {
@@ -179,17 +146,14 @@ thread::run_routine(void* threadptr)
     try {
       self->run();
       success = true;
-      //JJW 11/6/2014 This here is weird
-      //The thread has run out of work and is terminating
-      //However, because of weird thread swapping the DES thread
-      //might still operate on the thread... we need to delay the delete
-      //until the DES thread has completely finished processing its current event
-      self->os()->schedule_now(new delete_thread_event(self));
       //this doesn't so much kill the thread as context switch it out
-      //it is up to the above delete thread event to actually to deletion/cleanup
+      //it is up to the above delete thread event to actually to do deletion/cleanup
       //all of this is happening ON THE THREAD - it kills itself
       //this is not the DES thread killing it
-      self->kill();
+      self->cleanup();
+    }
+    catch (const kill_exception& ex) {
+      //great, we are done
     }
     catch (const std::exception &ex) {
       cerrn << "thread terminated with exception: " << ex.what()
@@ -214,23 +178,20 @@ thread::run_routine(void* threadptr)
   }
 }
 
-key_traits::category schedule_delay("CPU_Sched Delay");
-
 thread::thread(sprockit::sim_parameters* params, software_id sid, operating_system* os) :
   os_(os),
   state_(PENDING),
   isInit(false),
-  backtrace_(nullptr),
   bt_nfxn_(0),
   last_bt_collect_nfxn_(0),
   thread_id_(thread::main_thread),
-  schedule_key_(key::construct(schedule_delay)),
   p_txt_(process_context::none),
-  stack_(nullptr),
   context_(nullptr),
   cpumask_(0),
   host_timer_(nullptr),
   parent_app_(nullptr),
+  timed_out_(false),
+  block_counter_(0),
   sid_(sid)
 {
   //make all cores possible active
@@ -285,10 +246,14 @@ thread::set_tls_value(long thekey, void *ptr)
 }
 
 void
-thread::append_backtrace(void* fxn)
+thread::append_backtrace(int id)
 {
-  backtrace_[bt_nfxn_] = fxn;
+#if SSTMAC_HAVE_GRAPHVIZ
+  backtrace_[bt_nfxn_] = id;
   bt_nfxn_++;
+#else
+  sprockit::abort("did not compile with call graph support");
+#endif
 }
 
 void
@@ -323,13 +288,11 @@ thread::now()
 
 thread::~thread()
 {
-  if (backtrace_) graph_viz::delete_trace(backtrace_);
-  if (stack_) os_->free_thread_stack(stack_);
+  if (stack_) stack_alloc::free(stack_);
   if (context_) {
     context_->destroy_context();
     delete context_;
   }
-  if (schedule_key_) delete schedule_key_;
   if (host_timer_) delete host_timer_;
 }
 

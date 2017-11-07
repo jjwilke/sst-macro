@@ -55,7 +55,6 @@ namespace sumi {
 
 rendezvous_protocol::rendezvous_protocol(sprockit::sim_parameters* params)
 {
-  rdma_pin_delay_ = params->get_optional_time_param("rdma_pin_delay", 0);
   software_ack_ = params->get_optional_bool_param("software_ack", true);
 }
 
@@ -64,55 +63,56 @@ rendezvous_get::~rendezvous_get()
 }
 
 void
-rendezvous_get::configure_send_buffer(mpi_queue* queue, const mpi_message::ptr& msg,
+rendezvous_get::configure_send_buffer(mpi_queue* queue, mpi_message* msg,
                                       void *buffer, mpi_type* type)
 {
-  if (rdma_pin_delay_.ticks_int64()){
-    queue->api()->compute(rdma_pin_delay_); 
-  }
+  SSTMACBacktrace(MPIRendezvousProtocol_RDMA_Configure_Buffer);
+  queue->api()->pin_rdma(msg->payload_bytes());
+
   if (isNonNullBuffer(buffer)){
     if (type->contiguous()){
       msg->remote_buffer().ptr = buffer;
     } else {
       void* eager_buf = fill_send_buffer(msg, buffer, type);
       msg->remote_buffer().ptr = eager_buf;
+      msg->set_owns_remote_buffer(true);
     }
   }
 }
 
 void
 rendezvous_get::send_header(mpi_queue* queue,
-                            const mpi_message::ptr& msg)
+                            mpi_message* msg)
 {
-  SSTMACBacktrace("MPI Rendezvous Protocol: RDMA Send Header");
+  SSTMACBacktrace(MPIRendezvousProtocol_RDMA_Send_Header);
   msg->set_content_type(mpi_message::header);
   queue->post_header(msg, sumi::message::header, false); //don't need the nic ack
 }
 
 void
 rendezvous_get::incoming_header(mpi_queue* queue,
-                               const mpi_message::ptr& msg)
+                               mpi_message* msg)
 {
   mpi_queue_recv_request* req = queue->pop_pending_request(msg);
   incoming_header(queue, msg, req);
 }
 
 void
-rendezvous_get::incoming_header(mpi_queue *queue,
-                                const mpi_message::ptr &msg,
-                                mpi_queue_recv_request *req)
+rendezvous_get::incoming_header(mpi_queue* queue,
+                                mpi_message* msg,
+                                mpi_queue_recv_request* req)
 {
-  SSTMACBacktrace("MPI Rendezvous Protocol: RDMA Handle Header");
+  SSTMACBacktrace(MPIRendezvousProtocol_RDMA_Handle_Header);
   if (req) {
 #if SSTMAC_COMM_SYNC_STATS
     //this is a bit of a hack
     msg->set_time_synced(queue->now());
 #endif
+    queue->api()->pin_rdma(msg->payload_bytes());
     mpi_queue_action_debug(
       queue->api()->comm_world()->rank(),
       "found matching request for %s",
       msg->to_string().c_str());
-    msg->set_needs_send_ack(false); //TODO do I need this?
     msg->set_content_type(mpi_message::data);
     msg->local_buffer().ptr = req->recv_buffer_;
     queue->recv_needs_payload_[msg->unique_int()] = req;
@@ -131,16 +131,11 @@ rendezvous_get::incoming_header(mpi_queue *queue,
 
 void
 rendezvous_get::incoming_payload(mpi_queue* queue,
-                                const mpi_message::ptr& msg)
+                                mpi_message* msg)
 {
-  SSTMACBacktrace("MPI Rendezvous Protocol: RDMA Handle Payload");
-  if (rdma_pin_delay_.ticks_int64()){
-    queue->api()->compute(rdma_pin_delay_);
-  }
-
-  mpi_queue::pending_req_map::iterator it = queue->recv_needs_payload_.find(
-        msg->unique_int());
-  if (it == queue->recv_needs_payload_.end()) {
+  SSTMACBacktrace(MPIRendezvousProtocol_RDMA_Handle_Payload);
+  auto iter = queue->recv_needs_payload_.find(msg->unique_int());
+  if (iter == queue->recv_needs_payload_.end()) {
     if (queue->recv_needs_payload_.empty()){
       std::cerr << "No recv requests waiting" << std::endl;
     }
@@ -160,11 +155,13 @@ rendezvous_get::incoming_payload(mpi_queue* queue,
      "queue %p data message %lu without a matching ack on %s",
       rank, queue, msg->unique_int(), msg->to_string().c_str());
   }
-  mpi_queue_recv_request* recver = it->second;
-  queue->recv_needs_payload_.erase(it);
+  mpi_queue_recv_request* recver = iter->second;
+  queue->recv_needs_payload_.erase(iter);
   queue->finalize_recv(msg, recver);
   if (software_ack_){
     queue->send_completion_ack(msg);
+  } else {
+    delete msg;
   }
 }
 

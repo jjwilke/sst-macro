@@ -54,17 +54,16 @@ Questions? Contact sst-macro-help@sandia.gov
 
 namespace sstmac {
 
+/**
+ * @brief The flow class
+ * Encapsulates a complete flow between two endpoints
+ */
 class flow :
   public event,
   public sprockit::printable
 {
- public:
-  /**
-   * Virtual function to return size. Child classes should impement this
-   * if they want any size tracked / modeled.
-   * @return Zero size, meant to be implemented by children.
-   */
-  virtual long byte_length() const = 0;
+ public:  
+  virtual uint64_t byte_length() const = 0;
 
   uint64_t flow_id() const {
     return flow_id_;
@@ -74,30 +73,16 @@ class flow :
     flow_id_ = id;
   }
 
-  void serialize_order(serializer& ser){
+  virtual void serialize_order(serializer& ser) override {
     ser & flow_id_;
     event::serialize_order(ser);
   }
 
   void clone_into(flow* flw) const {
     flw->flow_id_ = flow_id_;
+    flw->toaddr_ = toaddr_;
+    flw->fromaddr_ = fromaddr_;
   }
-
- protected:
-  flow(){} //for serialization
-
- private:
-  uint64_t flow_id_;
-};
-
-/**
- * A class describing an event.
- */
-class message :
-  public flow
-{
- public:
-  virtual ~message() {}
 
   node_id toaddr() const {
     return toaddr_;
@@ -115,24 +100,34 @@ class message :
     fromaddr_ = addr;
   }
 
+ protected:
+  flow(){} //for serialization
+
+  flow(node_id from, node_id to) :
+    fromaddr_(from), toaddr_(to)
+  {
+  }
+
+ private:
+  uint64_t flow_id_;
+
+ protected:
+  node_id toaddr_;
+  node_id fromaddr_;
+
+};
+
+/**
+ * @brief The message class
+ * A special type of flow that may require ACK notifications
+ */
+class message :
+  public flow
+{
+ public:
+  virtual ~message() {}
 
   virtual bool needs_ack() const {
-    return false;
-  }
-
-  void serialize_order(serializer& ser){
-    flow::serialize_order(ser);
-    ser & toaddr_;
-    ser & fromaddr_;
-  }
-
-  void clone_into(message* msg) const {
-    flow::clone_into(msg);
-    msg->toaddr_ = toaddr_;
-    msg->fromaddr_ = fromaddr_;
-  }
-
-  virtual bool is_bcast() const {
     return false;
   }
 
@@ -144,13 +139,9 @@ class message :
   message(){} //for serialization
 
   message(node_id from, node_id to) :
-    toaddr_(to), fromaddr_(from)
+   flow(from, to)
   {
   }
-
- private:
-  node_id toaddr_;
-  node_id fromaddr_;
 
 };
 

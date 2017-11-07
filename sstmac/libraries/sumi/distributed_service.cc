@@ -48,7 +48,11 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sprockit/keyword_registration.h>
 
 MakeDebugSlot(distributed_service)
-RegisterKeywords("services");
+
+RegisterKeywords(
+ { "services", "" },
+ { "libname", "the library name for a given service running on a node" },
+);
 
 #define debug(...) debug_printf(sprockit::dbg::distributed_service, __VA_ARGS__)
 
@@ -80,15 +84,15 @@ distributed_service_app::skeleton_main()
   delete srv;
 }
 
-sumi::message::ptr
+sumi::message*
 distributed_service::poll_for_message(bool blocking)
 {
-  sumi::message::ptr msg = poll(blocking);
+  sumi::message* msg = poll(blocking);
   if (msg && msg->class_type() == sumi::message::bcast){
-    auto smsg = std::dynamic_pointer_cast<sumi::system_bcast_message>(msg);
+    auto smsg = dynamic_cast<sumi::system_bcast_message*>(msg);
     if (smsg->action() == sumi::system_bcast_message::shutdown){
       terminated_ = true;
-      return sumi::message::ptr();
+      return nullptr;
     }
   }
   return msg;

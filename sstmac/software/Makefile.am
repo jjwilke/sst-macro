@@ -13,6 +13,7 @@ include $(top_srcdir)/Makefile.common
 
 AM_CPPFLAGS += -I$(top_builddir)/sst-dumpi -I$(top_srcdir)/sst-dumpi
 
+
 noinst_LTLIBRARIES = libsstmac_sw.la
 libsstmac_sw_la_LDFLAGS = 
 
@@ -43,10 +44,8 @@ libsstmac_sw_la_SOURCES = \
   libraries/compute/compute_event.cc \
   libraries/compute/lib_compute.cc \
   libraries/compute/lib_compute_inst.cc \
-  libraries/compute/lib_compute_matrix.cc \
   libraries/compute/lib_compute_memmove.cc \
   libraries/compute/lib_compute_time.cc \
-  libraries/compute/lib_compute_loops.cc \
   libraries/unblock_event.cc \
   launch/launch_request.cc \
   launch/node_allocator.cc \
@@ -89,7 +88,6 @@ nobase_library_include_HEADERS = \
   process/app_fwd.h \
   process/app_id.h \
   process/key.h \
-  process/key_fwd.h \
   process/host_timer.h \
   process/operating_system.h \
   process/operating_system_fwd.h \
@@ -98,7 +96,6 @@ nobase_library_include_HEADERS = \
   process/time.h \
   process/thread_info.h \
   process/tls.h \
-  process/thread_data.h \
   process/thread.h \
   process/thread_fwd.h \
   process/thread_id.h \
@@ -115,11 +112,9 @@ nobase_library_include_HEADERS = \
   libraries/compute/compute_event_fwd.h \
   libraries/compute/lib_compute_inst.h \
   libraries/compute/lib_compute_fwd.h \
-  libraries/compute/lib_compute_matrix.h \
   libraries/compute/lib_compute_memmove.h \
   libraries/compute/lib_compute_time.h \
   libraries/compute/lib_compute.h \
-  libraries/compute/lib_compute_loops.h \
   libraries/library.h \
   libraries/library_fwd.h \
   libraries/unblock_event.h \
@@ -164,6 +159,11 @@ if HAVE_PTH
      threading/threading_pth.cc 
   nobase_library_include_HEADERS += \
     threading/threading_pth.h 
+endif
+
+if HAVE_FCONTEXT
+  libsstmac_sw_la_SOURCES += \
+     threading/threading_fcontext.cc 
 endif
 
 
