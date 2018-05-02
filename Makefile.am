@@ -15,7 +15,7 @@ include $(top_srcdir)/Makefile.common
 EXTRA_DIST = LICENSE bootstrap.sh \
   developer-sstmacro-8.0.pdf \
   manual-sstmacro-8.0.pdf \
-  pdes-report-8.0.pdf \
+  pdes-report-7.2.pdf \
   docs \
   share \
   skeletons
