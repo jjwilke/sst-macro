@@ -134,8 +134,9 @@ sculpin_switch::sculpin_switch(
 #endif
 #endif
   }
+#if SSTMAC_VTK_ENABLED && !SSTMAC_INTEGRATED_SST_CORE
   if (vtk_) vtk_->configure(my_addr_, top_);
-
+#endif
   stat_hotspots_ = optional_stats<stat_hotspot>(this, params, "hotspot", "hotspot");
   if (stat_hotspots_) stat_hotspots_->configure(my_addr_, top_);
 
