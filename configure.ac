@@ -183,6 +183,8 @@ CHECK_MPI_IMPLEMENTATION()
 
 CHECK_OTF2()
 
+CHECK_GTEST()
+
 CHECK_MPI_TIMELINE_STATS()
 
 CHECK_THREAD_PARALLEL()
@@ -311,6 +313,14 @@ echo "MPI Timeline Stats $enable_mpi_timeline"
 echo "MPI Sync Stats     $with_comm_sync_stats"
 echo "Graphviz Trace     $enable_graphviz"
 echo "Sanity Checking    $enable_sanity_check"
+
+echo "Testing.:"
+if test -z "$gtest_path"; then
+echo "GTEST              no"
+else
+echo "GTEST              $gtest_path"
+fi
+
 
 echo "---------------------------------------------------------------"
 

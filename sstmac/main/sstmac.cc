@@ -79,6 +79,21 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/software/process/operating_system.h>
 #include <sstmac/hardware/node/simple_node.h>
 
+
+#if SSTMAC_GTEST_ENABLED
+#include <basictests.h>
+#include <gtest/gtest.h>
+
+int initializeTests(int argc, char **argv, sprockit::sim_parameters* params)
+{
+  ::testing::InitGoogleTest(&argc, argv);
+  ::testing::AddGlobalTestEnvironment(new ParametersEnvironment(argc, argv, params));
+  int const ret = RUN_ALL_TESTS();
+  return ret;
+}
+#endif
+
+
 #if SSTMAC_REPO_BUILD
 #include <sstmac_repo.h>
 #endif
@@ -414,6 +429,10 @@ try_main(sprockit::sim_parameters* params,
       load_extern_library(lib, pathStr);
     }
   }
+
+#if SSTMAC_GTEST_ENABLED
+  return initializeTests(argc, argv, params);
+#endif
 
   if (params_only)
     return 0;
