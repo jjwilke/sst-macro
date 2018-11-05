@@ -56,6 +56,7 @@ RegisterKeywords(
 { "h", "the number inter-group connections per router" },
 { "group_connections", "the number of inter-group connections per router"},
 { "inter_group", "the inter-group wiring scheme"},
+{ "vtk_row_spacing", "the relative spacing of dragonfly+ rows" },
 );
 
 namespace sstmac {
@@ -66,24 +67,32 @@ static const double PI = 3.141592653589793238462;
 dragonfly_plus::dragonfly_plus(sprockit::sim_parameters* params) :
   dragonfly(params)
 {
-  max_ports_intra_network_ = a_ + h_;
-  eject_geometric_id_ = max_ports_intra_network_;
-
   if (h_ % (g_-1)){
     spkt_abort_printf("dragonfly+ currently requires an all-to-all group connectivity");
   }
 
   num_leaf_switches_ = a_*g_;
+
+  vtk_row_spacing_ = params->get_optional_double_param("vtk_row_spacing", 2.0);
 }
 
 void
-dragonfly_plus::minimal_route_to_switch(
-  int& path_rotater,
-  switch_id src,
-  switch_id dst,
-  packet::path &path) const
+dragonfly_plus::endpoints_connected_to_injection_switch(switch_id swaddr,
+                                   std::vector<injection_port>& nodes) const
 {
+  int row = computeRow(swaddr);
+  if (row > 0){
+    nodes.clear();
+    return;
+  }
 
+  nodes.resize(concentration_);
+  for (int i = 0; i < concentration_; i++) {
+    injection_port& port = nodes[i];
+    port.nid = swaddr*concentration_ + i;
+    port.switch_port = i + a_;
+    port.ep_port = 0;
+  }
 }
 
 int
@@ -166,9 +175,89 @@ dragonfly_plus::configure_individual_port_params(switch_id src, sprockit::sim_pa
     dragonfly::setup_port_params(switch_params, red_[0], 0, a_);
     dragonfly::setup_port_params(switch_params, red_[1], a_, h_);
   }
-
-
 }
+
+topology::vtk_switch_geometry
+dragonfly_plus::get_vtk_geometry(switch_id sid) const
+{
+  int myRow;
+  int myA;
+  int myG;
+  get_coords(sid, myRow, myA, myG);
+
+  //we need to figure out the radian offset of the group
+  double inter_group_offset = vtk_group_radians_ * myG;
+  double intra_group_start = vtk_switch_radians_ * myA;
+
+  double theta = inter_group_offset + intra_group_start;
+
+  /** With no rotation, these are the corners.
+   * These will get rotated appropriately */
+  double zCorner = 0.0;
+  double yCorner = 0.0;
+  double xCorner = vtk_radius_;
+  if (myRow == 0){
+    //this is the "intra-group" row without group connections
+    //put this in the outer circle
+    xCorner += vtk_row_spacing_ * vtk_box_length_;
+  }
+
+  double xSize = vtk_box_length_;
+  double ySize = 0.25; //this is the face pointing "into" the circle
+  double zSize = 0.25;
+
+  int num_ports = myRow == 0 ? a_ + concentration() : a_ + h_;
+  std::vector<vtk_switch_geometry::port_geometry> ports(num_ports);
+  double y_fraction_a = 1.0 / double(a_);
+  double y_fraction_h = 1.0 / double(h_);
+  double y_fraction_c = 1.0 / double(concentration());
+  if (myRow == 0){
+    for (int a=0; a < a_; ++a){
+      vtk_switch_geometry::port_geometry& geom = ports[a];
+      geom.x_offset = 0;
+      geom.x_size = 0.3;
+      geom.y_offset = a * y_fraction_a;
+      geom.y_size = y_fraction_a;
+      geom.z_offset = 0;
+      geom.z_size = 1.0;
+    }
+    for (int c=0; c < concentration(); ++c){
+      vtk_switch_geometry::port_geometry& geom = ports[a_ + c];
+      geom.x_offset = 1;
+      geom.x_size = 0.3;
+      geom.y_offset = c * y_fraction_c;
+      geom.y_size = y_fraction_c;
+      geom.z_offset = 0;
+      geom.z_size = 1.0;
+    }
+  } else {
+    for (int a=0; a < a_; ++a){
+      vtk_switch_geometry::port_geometry& geom = ports[a];
+      geom.x_offset = 1;
+      geom.x_size = -0.3;
+      geom.y_offset = a * y_fraction_a;
+      geom.y_size = y_fraction_a;
+      geom.z_offset = 0;
+      geom.z_size = 1.0;
+    }
+    for (int h=0; h < h_; ++h){
+      vtk_switch_geometry::port_geometry& geom = ports[a_ + h];
+      geom.x_offset = 0;
+      geom.x_size = 0.3;
+      geom.y_offset = h * y_fraction_h;
+      geom.y_size = y_fraction_h;
+      geom.z_offset = 0;
+      geom.z_size = 1.0;
+    }
+  }
+
+  vtk_switch_geometry geom(xSize, ySize, zSize,
+                           xCorner, yCorner, zCorner, theta,
+                           std::move(ports));
+
+  return geom;
+}
+
 
 }
 } //end of namespace sstmac

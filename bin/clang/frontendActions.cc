@@ -57,12 +57,12 @@ using namespace clang::driver;
 using namespace clang::tooling;
 
 ReplaceAction::ReplaceAction() :
-  visitor_(rewriter_, globalNs_, deletedStmts_, prgConfig_)
+  visitor_(rewriter_, globalNs_, prgConfig_)
 {
 }
 
 bool
-#if CLANG_VERSION_MAJOR <=5
+#if CLANG_VERSION_MAJOR <=4
 ReplaceAction::BeginSourceFileAction(CompilerInstance &CI, llvm::StringRef Filename)
 #else
 ReplaceAction::BeginSourceFileAction(CompilerInstance &CI)
@@ -101,7 +101,7 @@ ReplaceAction::ExecuteAction()
   //okay, super annoying - I have to DELETE the openmp handlers
   DeleteOpenMPPragma deleter; ci_->getPreprocessor().RemovePragmaHandler(&deleter);
   ci_->getPreprocessor().AddPragmaHandler("omp", new SSTOpenMPParallelPragmaHandler(
-                     visitor_.getPragmas(), *ci_, visitor_, deletedStmts_)); //and put it back
+                     visitor_.getPragmas(), *ci_, visitor_)); //and put it back
 
   S.getPreprocessor().EnterMainSourceFile();
   P.Initialize();
@@ -132,63 +132,79 @@ ReplaceAction::ExecuteAction()
   Consumer.HandleTranslationUnit(S.getASTContext());
 }
 
+struct PragmaPPCallback : public PPCallbacks {
+
+  void PragmaDirective(SourceLocation Loc, PragmaIntroducerKind Introducer) override {
+    SSTPragmaHandler::pragmaDirectiveLoc = Loc;
+  }
+
+};
+
 void
 ReplaceAction::initPragmas(CompilerInstance& CI)
 {
+  CI.getPreprocessor().addPPCallbacks(llvm::make_unique<PragmaPPCallback>());
+
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTDeletePragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTDeletePragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTMallocPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTMallocPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTNewPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTNewPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTComputePragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTComputePragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTAlwaysComputePragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTAlwaysComputePragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTReplacePragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTReplacePragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTStartReplacePragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTStartReplacePragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTStopReplacePragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTStopReplacePragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTKeepPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTKeepPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTNullVariablePragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTNullVariablePragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTLoopCountPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTLoopCountPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTInitPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTInitPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTReturnPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTReturnPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTGlobalVariablePragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTGlobalVariablePragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTNullTypePragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTNullTypePragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTEmptyPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTEmptyPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTKeepIfPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTKeepIfPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTMemoryPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTMemoryPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTInsteadPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTInsteadPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTBranchPredictPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTBranchPredictPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTCallFunctionPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTCallFunctionPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTOverheadPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTOverheadPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTAdvanceTimePragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTAdvanceTimePragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTNonnullFieldsPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTNonnullFieldsPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTNullFieldsPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTNullFieldsPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTNullVariableGeneratorPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTNullVariableGeneratorPragmaHandler(visitor_.getPragmas(), CI, visitor_));
   CI.getPreprocessor().AddPragmaHandler("sst",
-    new SSTNullVariableStopPragmaHandler(visitor_.getPragmas(), CI, visitor_, deletedStmts_));
+    new SSTNullVariableStopPragmaHandler(visitor_.getPragmas(), CI, visitor_));
+  CI.getPreprocessor().AddPragmaHandler("sst",
+    new SSTMemoizeComputePragmaHandler(visitor_.getPragmas(), CI, visitor_));
+  CI.getPreprocessor().AddPragmaHandler("sst",
+    new SSTStackAllocPragmaHandler(visitor_.getPragmas(), CI, visitor_));
+  CI.getPreprocessor().AddPragmaHandler("sst",
+    new SSTImplicitStatePragmaHandler(visitor_.getPragmas(), CI, visitor_));
 }
 
 void
@@ -208,7 +224,11 @@ ReplaceAction::EndSourceFileAction()
   }
 
   std::error_code rc;
+#if CLANG_VERSION_MAJOR >= 7
+  llvm::raw_fd_ostream fs(sstSourceFile, rc, llvm::sys::fs::FA_Write);
+#else
   llvm::raw_fd_ostream fs(sstSourceFile, rc, llvm::sys::fs::F_RW);
+#endif
   rewriter_.getEditBuffer(rewriter_.getSourceMgr().getMainFileID()).write(fs);
   fs.close();
 
@@ -217,7 +237,8 @@ ReplaceAction::EndSourceFileAction()
   std::ofstream ofs(sstGlobalFile.c_str());
   if (ofs.good()){
     //add the header files needed
-    ofs << "#include <sstmac/software/process/global.h>\n\n";
+    ofs << "#include <sstmac/software/process/global.h>\n"
+        << "#include <sstmac/software/process/memoize.h>\n\n";
     globalNs_.genSSTCode(ofs,"");
     visitor_.registerNewKeywords(ofs);
     if (visitor_.hasCStyleMain()){
@@ -225,7 +246,8 @@ ReplaceAction::EndSourceFileAction()
       ofs << "int user_skeleton_main_init_fxn(const char* name, int (*foo)(int,char**));\n"
          << "extern \"C\" int sstmac_user_main_" << appname << "(int argc, char** argv);\n"
          << "int " << appname << "_sstmac_initer = user_skeleton_main_init_fxn("
-           << "\"" << appname << "\",sstmac_user_main_" << appname << ");\n\n";
+           << "\"" << appname << "\",sstmac_user_main_" << appname << ");\n\n"
+           << "extern \"C\" const char exe_main_name[] = \"" << appname << "\";\n";
     }
   } else {
     llvm::errs() << "Failed opening " << sstGlobalFile << "\n";

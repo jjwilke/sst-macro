@@ -382,6 +382,22 @@ sim_parameters::get_optional_vector_param(const std::string &key, std::vector<st
 }
 
 void
+sim_parameters::get_optional_vector_param(const std::string &key, std::vector<int>& vals)
+{
+  if (has_param(key)){
+    get_vector_param(key, vals);
+  }
+}
+
+void
+sim_parameters::get_optional_vector_param(const std::string &key, std::vector<double>& vals)
+{
+  if (has_param(key)){
+    get_vector_param(key, vals);
+  }
+}
+
+void
 sim_parameters::get_vector_param(const std::string& key,
                                  std::vector<std::string>& vals)
 {
@@ -763,8 +779,7 @@ sim_parameters::get_bool_param(const std::string &key)
   std::string v = get_param(key);
   if (v == "true" || v == "1") {
     return true;
-  }
-  else if (v != "false" && v != "0") {
+  } else if (v != "false" && v != "0") {
     spkt_abort_printf("sim_parameters::get_bool_param: param %s with value %s is not formatted as a proper boolean",
                      key.c_str(), v.c_str());
   }
@@ -921,8 +936,7 @@ sim_parameters::try_to_parse(
   std::string f_firstchar = inc_file.substr(0, 1);
   if (f_firstchar == "/") {
     //do nothing - this is an absolute path
-  }
-  else {
+  } else {
     size_t pos = fname.find_last_of('/');
     if (pos != std::string::npos) {
       dir = fname.substr(0, pos + 1);
@@ -1057,8 +1071,8 @@ sim_parameters::parse_stream(std::istream& in,
     sim_parameters* active_scope = ns_queue.back();
     int last_idx = line.size() - 1;
 
-    if(line.size() == 0) {
-       //empty
+    if (line.size() == 0) {
+          //empty
     } else if (line[0] == '#') {
       //a comment
       continue;
@@ -1265,7 +1279,9 @@ sim_parameters::do_add_param(
     "sim_parameters: setting key %s to value %s\n",
     key.c_str(), val.c_str());
 
-  KeywordRegistration::validate_keyword(key,val);
+  //if (this->namespace_ != "env"){ //special reserved namespace
+  //  KeywordRegistration::validate_keyword(key,val);
+  //}
 
   key_value_map::iterator it = params_.find(key);
 

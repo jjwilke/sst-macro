@@ -58,13 +58,20 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sprockit/keyword_registration.h>
 #include <sstmac/hardware/topology/topology.h>
 #include <sstmac/common/event_callback.h>
-
+#if SSTMAC_INTEGRATED_SST_CORE
+#include <sst/core/factory.h>
+#endif
 RegisterNamespaces("switch", "router", "xbar", "link");
 
 RegisterKeywords(
 { "latency", "latency to traverse a portion of the switch - sets both credit/send" },
 { "bandwidth", "the bandwidth of a given link sending" },
 { "congestion", "whether to include congestion modeling on switches" },
+{ "filter_stat_source", "list of specific source nodes to collect statistics for" },
+{ "filter_stat_destination", "list of specific destination nodes to collect statistis for" },
+{ "highlight_stat_source", "list of specific source nodes to highlight traffic from" },
+{ "highlight_scale", "the scale factor to use for highlighting" },
+{ "vtk_flicker", "whether to 'flicker' when packets leave/arrive" },
 );
 
 
@@ -79,6 +86,10 @@ sculpin_switch::sculpin_switch(
   sprockit::sim_parameters *params, uint32_t id, event_manager *mgr) :
   router_(nullptr),
   congestion_(true),
+  #if SSTMAC_VTK_ENABLED && !SSTMAC_INTEGRATED_SST_CORE
+    vtk_(nullptr),
+  #endif
+  delay_hist_(nullptr),
   network_switch(params, id, mgr)
 {
   sprockit::sim_parameters* rtr_params = params->get_optional_namespace("router");
@@ -86,25 +97,78 @@ sculpin_switch::sculpin_switch(
   router_ = router::factory::get_param("name", rtr_params, top_, this);
 
   congestion_ = params->get_optional_bool_param("congestion", true);
+  vtk_flicker_ = params->get_optional_bool_param("vtk_flicker", true);
 
   sprockit::sim_parameters* ej_params = params->get_optional_namespace("ejection");
   std::vector<topology::injection_port> inj_conns;
-  top_->nodes_connected_to_ejection_switch(my_addr_, inj_conns);
+  top_->endpoints_connected_to_ejection_switch(my_addr_, inj_conns);
   for (topology::injection_port& conn : inj_conns){
-    sprockit::sim_parameters* port_params = topology::get_port_params(params, conn.port);
+    sprockit::sim_parameters* port_params = topology::get_port_params(params, conn.switch_port);
     ej_params->combine_into(port_params);
   }
 
+  // Ensure topology is set
+  topology::static_topology(params);
+
+#if SSTMAC_VTK_ENABLED
+#if SSTMAC_INTEGRATED_SST_CORE
+  //traffic_intensity = registerStatistic<traffic_event>("traffic_intensity", getName());
+
+//  std::function<void (const std::multimap<uint64_t, traffic_event> &, int, int)> f =
+//      &stat_vtk::outputExodus;
+
+  //SST::Factory::getFactory()->registerOptionnalCallback("statOutputEXODUS", f);
+#else
+  vtk_ = optional_stats<stat_vtk>(this,
+        params,
+        "vtk", /* The parameter namespace in the ini file */
+        "vtk" /* The object's factory name */
+   );
+  if (vtk_) vtk_->configure(my_addr_, top_);
+#endif
+#endif
 #if !SSTMAC_INTEGRATED_SST_CORE
   payload_handler_ = new_handler(this, &sculpin_switch::handle_payload);
   credit_handler_ = new_handler(this, &sculpin_switch::handle_credit);
 #endif
-
   ports_.resize(top_->max_num_ports());
   for (int i=0; i < ports_.size(); ++i){
     ports_[i].id = i;
     ports_[i].seqnum = 0;
+#if SSTMAC_VTK_ENABLED
+#if SSTMAC_INTEGRATED_SST_CORE
+    traffic_intensity.push_back(registerStatistic<traffic_event>("traffic_intensity", getName() + std::to_string(ports_[i].id)));
+#endif
+#endif
   }
+
+  delay_hist_ = optional_stats<stat_histogram>(this, params, "delays", "histogram");
+
+  init_links(params);
+
+  if (params->has_param("filter_stat_source")){
+    std::vector<int> filter;
+    params->get_vector_param("filter_stat_source", filter);
+    for (int src : filter){
+      src_stat_filter_.insert(src);
+    }
+  }
+
+  if (params->has_param("filter_stat_destination")){
+    std::vector<int> filter;
+    params->get_vector_param("filter_stat_destination", filter);
+    for (int dst : filter) dst_stat_filter_.insert(dst);
+  }
+
+  if (params->has_param("highlight_stat_source")){
+    std::vector<int> filter;
+    params->get_vector_param("highlight_stat_source", filter);
+    for (int src : filter) src_stat_highlight_.insert(src);
+  }
+
+  highlight_scale_ = params->get_optional_double_param("highlight_scale", 1000.);
+  vtk_flicker_ = params->get_optional_bool_param("vtk_flicker", true);
+
 }
 
 sculpin_switch::~sculpin_switch()
@@ -114,6 +178,9 @@ sculpin_switch::~sculpin_switch()
   if (credit_handler_) delete credit_handler_;
   if (payload_handler_) delete payload_handler_;
 #endif
+  for (port& p : ports_){
+    if (p.link) delete p.link;
+  }
 }
 
 void
@@ -127,6 +194,7 @@ sculpin_switch::connect_output(
   port& p = ports_[src_outport];
   p.link = link;
   p.inv_bw = 1.0/bw;
+  p.dst_port = dst_inport;
 }
 
 void
@@ -137,6 +205,8 @@ sculpin_switch::connect_input(
   event_link* link)
 {
   //no-op
+  //but we have to delete the link because we own it
+  delete link;
 }
 
 timestamp
@@ -195,8 +265,39 @@ sculpin_switch::send(port& p, sculpin_packet* pkt, timestamp now)
   pkt->set_time_to_send(time_to_send);
   p.link->send_extra_delay(extra_delay, pkt);
 
+  timestamp delay = p.next_free - pkt->arrival();
+
+  if (delay_hist_){
+    delay_hist_->collect(delay.usec());
+  }
+
+#if SSTMAC_VTK_ENABLED
+#if SSTMAC_INTEGRATED_SST_CORE
+  traffic_event evt;
+  evt.time_=p.next_free.ticks();
+  evt.id_=my_addr_;
+  evt.p_=p.id;
+  evt.type_=1;
+  traffic_intensity[p.id]->addData(evt);
+#else
+  if (vtk_){
+    double scale = do_not_filter_packet(pkt);
+    if (scale > 0){
+      double color = delay.msec() * scale;
+      vtk_->collect_new_color(now, p.id, color);
+      if (vtk_flicker_ || p.priority_queue.empty()){
+        static const timestamp flicker_diff(1e-9);
+        timestamp flicker_time = p.next_free - flicker_diff;
+        vtk_->collect_new_color(flicker_time, p.id, 0);
+      }
+    }
+  }
+#endif
+#endif
+
   pkt_debug("packet leaving port %d at t=%8.4e: %s",
             p.id, p.next_free.sec(), pkt->to_string().c_str());
+
   if (p.priority_queue.empty()){
     //reset the sequence number for ordering packets
     p.seqnum = 0;
@@ -229,9 +330,13 @@ void
 sculpin_switch::try_to_send_packet(sculpin_packet* pkt)
 {
   timestamp now_ = now();
+
   pkt->set_arrival(now_);
   port& p = ports_[pkt->next_port()];
   pkt->set_seqnum(p.seqnum++);
+
+  static int max_queue_depth = 0;
+
   if (!congestion_){
     timestamp time_to_send = pkt->num_bytes() * p.inv_bw;
     p.next_free += time_to_send;
@@ -259,14 +364,34 @@ sculpin_switch::try_to_send_packet(sculpin_packet* pkt)
   }
 }
 
+double
+sculpin_switch::do_not_filter_packet(sculpin_packet* pkt)
+{
+  auto iter = src_stat_highlight_.find(pkt->fromaddr());
+  if (iter!= src_stat_highlight_.end()){
+    return highlight_scale_;
+  }
+  iter = dst_stat_highlight_.find(pkt->toaddr());
+  if (iter != dst_stat_highlight_.end()){
+    return highlight_scale_;
+  }
+
+
+  bool keep_src = src_stat_filter_.empty() || src_stat_filter_.find(pkt->fromaddr()) != src_stat_filter_.end();
+  bool keep_dst = dst_stat_filter_.empty() || dst_stat_filter_.find(pkt->fromaddr()) != dst_stat_filter_.end();
+
+  if (keep_src && keep_dst) return 1.0;
+  else return -1.;
+}
+
 void
 sculpin_switch::handle_payload(event *ev)
 {
   sculpin_packet* pkt = safe_cast(sculpin_packet, ev);
   switch_debug("handling payload %s", pkt->to_string().c_str());
   router_->route(pkt);
-
   port& p = ports_[pkt->next_port()];
+
   timestamp time_to_send = p.inv_bw * pkt->num_bytes();
   /** I am processing the head flit - so I assume compatibility with wormhole routing
    * The tail flit cannot leave THIS switch prior to its departure time in the prev switch */
@@ -287,7 +412,7 @@ sculpin_switch::to_string() const
 }
 
 link_handler*
-sculpin_switch::credit_handler(int port) const
+sculpin_switch::credit_handler(int port)
 {
 #if SSTMAC_INTEGRATED_SST_CORE
   return new_link_handler(this, &sculpin_switch::handle_credit);
@@ -297,7 +422,7 @@ sculpin_switch::credit_handler(int port) const
 }
 
 link_handler*
-sculpin_switch::payload_handler(int port) const
+sculpin_switch::payload_handler(int port)
 {
 #if SSTMAC_INTEGRATED_SST_CORE
   return new_link_handler(this, &sculpin_switch::handle_payload);

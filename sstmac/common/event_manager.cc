@@ -244,26 +244,41 @@ event_manager::register_pending()
   pending_slot_ = (pending_slot_+1) % num_pending_slots;
 }
 
+static int nactive_threads = 0;
+static thread_lock active_lock;
+
 void
 event_manager::spin_up(void(*fxn)(void*), void* args)
 {
+  active_lock.lock();
+  ++nactive_threads;
+  active_lock.unlock();
+  
   void* stack = sw::stack_alloc::alloc();
-  sstmac::thread_info::set_thread_id(stack, thread_id_);
+  sstmac::thread_info::register_user_space_virtual_thread(thread_id_, stack, nullptr, nullptr);
   main_thread_ = des_context_->copy();
   main_thread_->init_context();
   spin_up_config cfg;
   cfg.mgr = this;
   cfg.fxn = fxn;
   cfg.args = args;
-  des_context_->start_context(thread_id_, stack, sw::stack_alloc::stacksize(),
-                              &run_event_manager_thread, &cfg, nullptr, nullptr,
-                              main_thread_);
+  des_context_->start_context(stack, sw::stack_alloc::stacksize(),
+                              &run_event_manager_thread, &cfg, main_thread_);
   delete main_thread_;
 }
 
 void
 event_manager::spin_down()
 {
+  active_lock.lock();
+  --nactive_threads;
+  if (nactive_threads == 0){
+    //delete here while we are still on a user-space thread
+    //annoying but necessary
+    interconn_->deadlock_check();
+    hw::interconnect::clear_static_interconnect();
+  }
+  active_lock.unlock();
   des_context_->complete_context(main_thread_);
 }
 
@@ -325,6 +340,7 @@ event_manager::finish_stats(stat_collector* main, const std::string& name)
 {
   stats_entry& entry = stats_[name];
   for (stat_collector* next : entry.collectors){
+    next->finalize(now_);
     if (entry.dump_all)
       next->dump_local_data();
 
@@ -379,9 +395,18 @@ event_manager::finish_stats()
         entry.main_collector = entry.collectors.front();
         entry.collectors.clear();
       } else {
-        stat_collector* first = entry.collectors.front();
-        entry.main_collector = first->clone();
-        main_allocated = true;
+        //see if any of the existing ones should be the main
+        for (stat_collector* stat : entry.collectors){
+          if (stat->is_main()){
+            entry.main_collector = stat;
+            break;
+          }
+        }
+        if (!entry.main_collector){
+          stat_collector* first = entry.collectors.front();
+          entry.main_collector = first->clone();
+          main_allocated = true;
+        }
       }
     }
 

@@ -80,20 +80,6 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/hardware/node/simple_node.h>
 
 
-#if SSTMAC_GTEST_ENABLED
-#include <basictests.h>
-#include <gtest/gtest.h>
-
-int initializeTests(int argc, char **argv, sprockit::sim_parameters* params)
-{
-  ::testing::InitGoogleTest(&argc, argv);
-  ::testing::AddGlobalTestEnvironment(new ParametersEnvironment(argc, argv, params));
-  int const ret = RUN_ALL_TESTS();
-  return ret;
-}
-#endif
-
-
 #if SSTMAC_REPO_BUILD
 #include <sstmac_repo.h>
 #endif
@@ -254,8 +240,15 @@ run_params(opts& oo,
 
   native::manager* mgr = new native::manager(params, rt);
 
-  // topology might have the filename, so call this even if option wasn't given
+  //dumping the output graph can be activated either on the command line
+  //or activated by a parameter inside the topology
+  //it is safe to call this function event if output_grapvhiz is empty
+  //the topology will check and not dump if neither command line
+  //nor parameter file has activated it
   mgr->interconn()->topol()->output_graphviz(oo.output_graphviz);
+
+  //same story applies for xyz file
+  mgr->interconn()->topol()->output_xyz(oo.output_xyz);
 
   double start = sstmac_wall_time();
   timestamp stop_time = params->get_optional_time_param("stop_time", 0);
@@ -268,7 +261,8 @@ run_params(opts& oo,
     fflush(stdout);
     fflush(stderr);
 
-    mgr->interconn()->deadlock_check();
+    //don't do this here anymore - interconn deleted by manager
+    //mgr->interconn()->deadlock_check();
     runtime::check_deadlock();
 
     mgr->finish();
@@ -339,10 +333,10 @@ run_standalone(int argc, char** argv)
   sprockit::sim_parameters null_params;
 
   sprockit::sim_parameters* nic_params = null_params.get_optional_namespace("nic");
-  nic_params->add_param_override("model", "null");
+  nic_params->add_param_override("name", "null");
 
   sprockit::sim_parameters* mem_params = null_params.get_optional_namespace("memory");
-  mem_params->add_param_override("model", "null");
+  mem_params->add_param_override("name", "null");
 
   sprockit::sim_parameters* proc_params = null_params.get_optional_namespace("proc");
   proc_params->add_param_override("frequency", "1ghz");
@@ -429,10 +423,6 @@ try_main(sprockit::sim_parameters* params,
       load_extern_library(lib, pathStr);
     }
   }
-
-#if SSTMAC_GTEST_ENABLED
-  return initializeTests(argc, argv, params);
-#endif
 
   if (params_only)
     return 0;

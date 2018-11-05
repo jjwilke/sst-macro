@@ -23,16 +23,6 @@ library_include_HEADERS = \
 noinst_LTLIBRARIES = libsstmac_driver.la 
 lib_LTLIBRARIES = libsstmac_main.la
 
-if HAVE_GTEST
-libsstmac_main_la_LDFLAGS+= $(GTEST_LDFLAGS)
-libsstmac_main_la_LIBADD += $(GTEST_LIBS)
-AM_CPPFLAGS += $(GTEST_CPPFLAGS)
-
-library_include_HEADERS += \
-    basictests.h
-
-endif
-
 if REPO_BUILD
 ../../sstmac_repo.h: $(abs_top_srcdir)/.git/refs/heads/@git_branch@
 	cd $(abs_top_srcdir) && $(abs_top_srcdir)/bin/config_tools/make_repo_header $(abs_top_srcdir) sstmac
@@ -40,19 +30,6 @@ if REPO_BUILD
 sstmac.lo: ../../sstmac_repo.h
 endif
 
-if HAVE_GTEST
-libsstmac_main_la_SOURCES = sstmac.cc \
-    main.cc
-libsstmac_driver_la_SOURCES = \
-    loadlib.cc \
-    driver.cc \
-    util.cc \
-    help.cc \
-    valid_keywords.cc \
-    params.cc \
-    parseopts.cc
-
-else
 libsstmac_main_la_SOURCES = main.cc
 libsstmac_driver_la_SOURCES = \
     loadlib.cc \
@@ -63,6 +40,4 @@ libsstmac_driver_la_SOURCES = \
     valid_keywords.cc \
     params.cc \
     parseopts.cc
-
-endif
 

@@ -68,8 +68,6 @@ namespace sstmac {
 namespace sw {
 
 static thread_safe_u32 THREAD_ID_CNT(0);
-const app_id thread::main_thread_aid(-1);
-const task_id thread::main_thread_tid(-1);
 
 //
 // Private method that gets called by the scheduler.
@@ -79,8 +77,8 @@ thread::init_thread(sprockit::sim_parameters* params,
   int physical_thread_id, thread_context* des_thread, void *stack,
   int stacksize, void* globals_storage, void* tls_storage)
 {
-  thread_info::set_thread_id(stack, physical_thread_id);
-
+  thread_info::register_user_space_virtual_thread(physical_thread_id, stack,
+                                                  globals_storage, tls_storage);
   stack_ = stack;
 
   init_id();
@@ -89,10 +87,10 @@ thread::init_thread(sprockit::sim_parameters* params,
 
   context_ = des_thread->copy();
 
-  context_->start_context(physical_thread_id, stack, stacksize,
+  tls_storage_ = (char*) tls_storage;
+
+  context_->start_context(stack, stacksize,
                           run_routine, this,
-                          globals_storage,
-                          tls_storage,
                           des_thread);
 }
 
@@ -196,6 +194,7 @@ thread::thread(sprockit::sim_parameters* params, software_id sid, operating_syst
   sid_(sid),
   ftag_(ftq_tag::null),
   protect_tag(false),
+  tls_storage_(nullptr),
   detach_state_(DETACHED),
   num_active_cores_(1), //start with 1
   active_core_mask_(0)
@@ -299,9 +298,48 @@ thread::~thread()
     context_->destroy_context();
     delete context_;
   }
+  if (tls_storage_) delete[] tls_storage_;
   if (host_timer_) delete host_timer_;
 }
 
+void
+thread::spawn_omp_parallel()
+{
+  spkt_abort_printf("unimplemented: spawn_omp_parallel");
+  omp_context& active = omp_contexts_.back();
+  active.subthreads.resize(active.requested_num_subthreads);
+  app* parent = parent_app();
+  sprockit::sim_parameters* params = parent->params();
+  for (int i=1; i < active.requested_num_subthreads; ++i){
+    //thread* thr = new thread(params, parent->sid(), os_);
+    //thr->set_omp_parent_context(active);
+    //start_thread(thr);
+    //active.subthreads[i] = thr;
+  }
+  //and finally have this thread enter the region as thread 0
+  set_omp_parent_context(0, active);
+}
+
+void
+thread::set_omp_parent_context(int id, const omp_context& context)
+{
+  omp_contexts_.emplace_back();
+  omp_context& active = omp_contexts_.back();
+  active.level = context.level + 1;
+  active.num_threads = context.requested_num_subthreads;
+  active.max_num_subthreads = active.requested_num_subthreads =
+      context.max_num_subthreads / context.requested_num_subthreads;
+  active.id = id;
+  active.parent_id = context.id;
+}
+
+void
+thread::compute_detailed(uint64_t flops, uint64_t nintops, uint64_t bytes, int nthread)
+{
+  omp_context& active = omp_contexts_.back();
+  int used_nthread = nthread == use_omp_num_threads ? active.num_threads : nthread;
+  parent_app()->compute_detailed(flops, nintops, bytes, used_nthread);
+}
 
 void
 thread::start_thread(thread* thr)
@@ -309,7 +347,6 @@ thread::start_thread(thread* thr)
   thr->p_txt_ = p_txt_;
   os_->start_thread(thr);
 }
-
 
 void
 thread::join()

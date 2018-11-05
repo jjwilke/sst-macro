@@ -30,6 +30,7 @@ libsstmac_sw_la_SOURCES = \
   process/global.cc \
   process/graphviz.cc \
   process/ftq.cc \
+  process/memoize.cc \
   process/operating_system.cc \
   process/thread.cc \
   process/thread_info.cc \
@@ -38,7 +39,6 @@ libsstmac_sw_la_SOURCES = \
   threading/context_util.cc \
   threading/stack_alloc_chunk.cc \
   threading/stack_alloc.cc \
-  threading/threading_pthread.cc \
   libraries/library.cc \
   libraries/compute/compute_api.cc \
   libraries/compute/compute_event.cc \
@@ -94,6 +94,7 @@ nobase_library_include_HEADERS = \
   process/operating_system_fwd.h \
   process/software_id.h \
   process/task_id.h \
+  process/memoize.h \
   process/time.h \
   process/thread_info.h \
   process/tls.h \

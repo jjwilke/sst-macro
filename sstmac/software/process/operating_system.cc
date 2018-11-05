@@ -45,7 +45,6 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <stdlib.h>
 #include <sstream>
 #include <csignal>
-
 #include <sstmac/common/messages/sst_message.h>
 #include <sstmac/common/sstmac_config.h>
 #include <sstmac/common/event_callback.h>
@@ -62,6 +61,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/software/process/ftq.h>
 #include <sstmac/software/process/app.h>
 #include <sstmac/software/process/key.h>
+#include <sstmac/software/process/time.h>
 #include <sstmac/software/process/operating_system.h>
 #include <sstmac/software/process/compute_scheduler.h>
 #include <sstmac/software/process/thread_info.h>
@@ -133,6 +133,178 @@ class delete_thread_event :
   thread* thr_;
 };
 
+struct null_implicit_state : public operating_system::implicit_state
+{
+  FactoryRegister("null", operating_system::implicit_state, null_implicit_state)
+
+  null_implicit_state(sprockit::sim_parameters* params) :
+    operating_system::implicit_state(params){}
+
+  void set_state(int type, int value) override {}
+  void unset_state(int type) override {}
+};
+
+struct null_regression : public operating_system::thread_safe_timer_model<double>
+{
+  FactoryRegister("null", operating_system::regression_model, null_regression)
+
+  using parent = operating_system::thread_safe_timer_model<double>;
+
+  null_regression(sprockit::sim_parameters* params,
+                  const std::string& key)
+    : parent(params, key), computed_(false) {}
+
+  double compute(int n_params, const double params[],
+                 operating_system::implicit_state* state) override {
+    if (!computed_){
+      computed_ = true;
+      compute_mean();
+    }
+    return mean_;
+  }
+
+  int start_collection() override {
+    return parent::start();
+  }
+
+  void finish_collection(int thr_tag, int n_params, const double params[],
+                         operating_system::implicit_state* state) override {
+    parent::finish(thr_tag);
+  }
+
+  void finalize(sstmac::timestamp t) override {
+    compute_mean();
+    std::string file = key() + ".memo";
+    std::ofstream ofs(file);
+    ofs << key()
+        << "\n" << mean_;
+    ofs.close();
+  }
+
+  void dump_global_data() override {}
+
+  void dump_local_data() override {}
+
+  std::string to_string() const override {
+    return "mean";
+  }
+
+  void clear() override {}
+
+  void reduce(stat_collector* coll) override {}
+
+  void global_reduce(sstmac::parallel_runtime* rt) override {}
+
+  stat_collector* do_clone(sprockit::sim_parameters* params) const override {
+    return new null_regression(params, key());
+  }
+
+ private:
+  void compute_mean(){
+    double total = 0;
+    for (double d : samples_){
+      total += d;
+    }
+    mean_ = total / samples_.size();
+  }
+
+  double mean_;
+  bool computed_;
+
+};
+
+struct linear_regression : public operating_system::thread_safe_timer_model<std::pair<double,double>>
+{
+  FactoryRegister("linear", operating_system::regression_model, linear_regression)
+  using parent = operating_system::thread_safe_timer_model<std::pair<double,double>>;
+  linear_regression(sprockit::sim_parameters* params,
+                    const std::string& key)
+    : parent(params, key), computed_(false) {}
+
+  double compute(int n_params, const double params[],
+                 operating_system::implicit_state* state) override {
+    if (n_params != 1){
+      spkt_abort_printf("linear regression can only take one parameter - got %d", n_params);
+    }
+    if (!computed_){
+      compute_regression();
+      computed_ = true;
+    }
+    double val = m_*params[0] + b_;
+    //std::cout << "Computed " << key() << "->f(" << params[0] << ") = " << val << std::endl;
+    return val;
+  }
+
+  int start_collection() override {
+    return parent::start();
+  }
+
+  void dump_global_data() override {}
+
+  void dump_local_data() override {}
+
+  std::string to_string() const override {
+    return "linear";
+  }
+
+  void clear() override {}
+
+  void reduce(stat_collector* coll) override {}
+
+  void global_reduce(sstmac::parallel_runtime* rt) override {}
+
+  stat_collector* do_clone(sprockit::sim_parameters* params) const override {
+    return new null_regression(params, key());
+  }
+
+  void finish_collection(int thr_tag, int n_params, const double params[],
+                         operating_system::implicit_state* state) override {
+    if (n_params != 1){
+      spkt_abort_printf("linear regression can only take one parameter - got %d", n_params);
+    }
+    parent::finish(thr_tag, params[0]);
+  }
+
+  void finalize(sstmac::timestamp t) override {
+    compute_regression();
+    std::string file = key() + ".memo";
+    std::ofstream ofs(file);
+    ofs << key()
+        << "\n" << m_
+        << "\n" << b_;
+    ofs.close();
+  }
+
+ private:
+  void compute_regression(){
+    double meanX = 0;
+    double meanY = 0;
+    for (auto& pair : samples_){
+      meanX += pair.second;
+      meanY += pair.second;
+    }
+    meanX /= samples_.size();
+    meanY /= samples_.size();
+
+    double Cov = 0;
+    double Var = 0;
+    for (auto& pair : samples_){
+      double dx = pair.first - meanX;
+      double dy = pair.second - meanY;
+      Var += dx*dx;
+      Cov += dx*dy;
+    }
+
+    b_ = Cov / Var;
+    m_ = meanY - b_*meanX;
+    //std::cout << "Computed " << key() << "-> m=" << m_ << " b=" << b_ << std::endl;
+  }
+
+  double m_;
+  double b_;
+  bool computed_;
+};
+
 static sprockit::need_delete_statics<operating_system> del_statics;
 static stats_unique_tag cg_tag;
 
@@ -148,6 +320,8 @@ thread_context* operating_system::gdb_original_context_ = nullptr;
 thread_context* operating_system::gdb_des_context_ = nullptr;
 std::unordered_map<uint32_t,thread*> operating_system::all_threads_;
 bool operating_system::gdb_active_ = false;
+std::map<std::string,operating_system::regression_model*> operating_system::memoize_models_;
+std::map<std::string,std::string>* operating_system::memoize_init_ = nullptr;
 
 operating_system::operating_system(sprockit::sim_parameters* params, hw::node* parent) :
 #if SSTMAC_INTEGRATED_SST_CORE
@@ -188,11 +362,50 @@ operating_system::operating_system(sprockit::sim_parameters* params, hw::node* p
 
   stack_alloc::init(params);
 
+  rebuild_memoizations();
+
   if (node_) {
     compute_sched_->configure(node_->proc()->ncores(), node_->nsocket());
   } else {
     compute_sched_->configure(1, 1);
   }
+
+  sprockit::sim_parameters* env_params = params->get_optional_namespace("env");
+  for (auto iter=env_params->begin(); iter != env_params->end(); ++iter){
+    env_[iter->first] = iter->second.value;
+  }
+}
+
+void
+operating_system::rebuild_memoizations()
+{
+  if (!memoize_init_) return;
+
+  for (auto& pair : *memoize_init_){
+    auto iter = memoize_models_.find(pair.first);
+#if !SSTMAC_INTEGRATED_SST_CORE
+    if (iter == memoize_models_.end()){
+      sprockit::sim_parameters* memo_params = params_->get_optional_namespace(pair.first);
+      memo_params->add_param_override("fileroot", pair.first);
+      auto* model = regression_model::factory::get_value(pair.second, memo_params, pair.first);
+      memoize_models_[pair.first] = model;
+      parent()->event_mgr()->register_stat(model, nullptr);
+    }
+#else
+    spkt_abort_printf("do not yet support memoization in integrated core - failed memoizing %s",
+                      pair.first.c_str());
+#endif
+  }
+}
+
+void
+operating_system::add_memoization(const std::string& name, const std::string& model)
+{
+  if (!memoize_init_){
+    memoize_init_ = new std::map<std::string,std::string>;
+  }
+  (*memoize_init_)[name] = model;
+
 }
 
 void
@@ -248,10 +461,6 @@ operating_system::init_threading(sprockit::sim_parameters* params)
     active_os_.resize(nthread());
   }
   lock.unlock();
-
-  //make sure to stash the thread ID in some thread-local storage
-  void* stack = thread_info::get_current_stack();
-  thread_info::set_thread_id(stack, threadId());
 #endif
 
   des_context_ = thread_context::factory::get_optional_param(
@@ -415,6 +624,63 @@ operating_system::print_libs(std::ostream &os) const
   for (auto& pair : libs_){
     os << pair.first << "\n";
   }
+}
+
+int
+operating_system::start_memoize(const char *token, const char* model_name)
+{
+  auto iter = memoize_models_.find(token);
+  if (iter == memoize_models_.end()){
+    spkt_abort_printf("memoization %s for model %s was not registered - likely a compiler wrapper error",
+                      token, model_name);
+  }
+
+  regression_model* model = iter->second;
+  return model->start_collection();
+}
+
+static thread_local sstmac::sw::operating_system::implicit_state* implicit_memo_state_ = nullptr;
+
+operating_system::implicit_state*
+operating_system::get_implicit_state()
+{
+  if (!implicit_memo_state_){
+      implicit_memo_state_ = sstmac::sw::operating_system::implicit_state::factory
+                    ::get_optional_param("implicit_state", "null", params_);
+  }
+  return implicit_memo_state_;
+}
+
+void
+operating_system::stop_memoize(int thr_tag, const char *token, int n_params, double params[])
+{
+  auto iter = memoize_models_.find(token);
+  if (iter == memoize_models_.end()){
+    spkt_abort_printf("memoization %s was not registered - likely a compiler wrapper error",
+                      token);
+  }
+
+  uintptr_t localStorage = get_sstmac_tls();
+  auto* states = (implicit_state*)(localStorage + SSTMAC_TLS_IMPLICIT_STATE);
+  regression_model* model = iter->second;
+  model->finish_collection(thr_tag, n_params, params, states);
+}
+
+void
+operating_system::compute_memoize(const char *token, int n_params, double params[])
+{
+  auto iter = memoize_models_.find(token);
+  if (iter == memoize_models_.end()){
+    spkt_abort_printf("memoization %s was not registered - likely a compiler wrapper error",
+                      token);
+  }
+
+  regression_model* model = iter->second;
+
+  uintptr_t localStorage = get_sstmac_tls();
+  auto* states = (implicit_state*)(localStorage + SSTMAC_TLS_IMPLICIT_STATE);
+  double time = model->compute(n_params, params, states);
+  current_os()->compute(timestamp(time));
 }
 
 void
@@ -584,8 +850,7 @@ operating_system::lib(const std::string& name) const
   auto it = libs_.find(name);
   if (it == libs_.end()) {
     return nullptr;
-  }
-  else {
+  } else {
     return it->second;
   }
 }

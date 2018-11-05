@@ -47,6 +47,16 @@ Questions? Contact sst-macro-help@sandia.gov
 
 #include <sstmac/hardware/switch/network_switch.h>
 #include <sstmac/hardware/sculpin/sculpin.h>
+#include <sstmac/common/stats/stat_histogram.h>
+#include <sstmac/common/sstmac_config.h>
+#if SSTMAC_VTK_ENABLED
+#if SSTMAC_INTEGRATED_SST_CORE
+#include <sst/core/sst_types.h>
+#include <sstmac/hardware/vtk/vtk_stats.h>
+#else
+#include <sstmac/hardware/vtk/vtk_stats.h>
+#endif
+#endif
 
 namespace sstmac {
 namespace hw {
@@ -59,15 +69,24 @@ namespace hw {
 class sculpin_switch :
   public network_switch
 {
-  RegisterComponent("sculpin", network_switch, sculpin_switch,
+  RegisterSSTComponent("sculpin", network_switch, sculpin_switch,
          "macro", COMPONENT_CATEGORY_NETWORK,
          "A network switch implementing the sculpin model")
+
+  SST_ELI_DOCUMENT_STATISTICS(
+    { "traffic_intensity",    "Count the traffic on a port", "unit of traffic", 1}
+  )
+
  public:
   sculpin_switch(sprockit::sim_parameters* params, uint32_t id, event_manager* mgr);
 
   virtual ~sculpin_switch();
 
   int queue_length(int port) const override;
+
+  router* rter() const override {
+    return router_;
+  }
 
   void connect_output(
     sprockit::sim_parameters* params,
@@ -81,9 +100,9 @@ class sculpin_switch :
     int dst_inport,
     event_link* link) override;
 
-  link_handler* credit_handler(int port) const override;
+  link_handler* credit_handler(int port) override;
 
-  link_handler* payload_handler(int port) const override;
+  link_handler* payload_handler(int port) override;
 
   timestamp send_latency(sprockit::sim_parameters *params) const override;
 
@@ -125,13 +144,14 @@ class sculpin_switch :
 
   struct port {
     int id;
+    int dst_port;
     timestamp next_free;
     double inv_bw;
     uint32_t seqnum;
     std::set<sculpin_packet*, priority_compare> priority_queue;
     event_link* link;
+    port() : link(nullptr){}
   };
-
   std::vector<port> ports_;
 
   router* router_;
@@ -141,7 +161,26 @@ class sculpin_switch :
   link_handler* credit_handler_;
 #endif
 
+#if SSTMAC_VTK_ENABLED
+#if SSTMAC_INTEGRATED_SST_CORE
+  std::vector<Statistic<traffic_event>* > traffic_intensity;
+#else
+  stat_vtk* vtk_;
+#endif
+#endif
+
   bool congestion_;
+
+  stat_histogram* delay_hist_;
+
+  std::set<node_id> src_stat_filter_;
+  std::set<node_id> dst_stat_filter_;
+  std::set<node_id> src_stat_highlight_;
+  std::set<node_id> dst_stat_highlight_;
+
+  double highlight_scale_;
+  bool vtk_flicker_;
+
 
  private:
   void send(port& p, sculpin_packet* pkt, timestamp now);
@@ -149,6 +188,13 @@ class sculpin_switch :
   void try_to_send_packet(sculpin_packet* pkt);
 
   void pull_next(int portnum);
+
+  /**
+   * @brief do_not_filter_packet
+   * @param pkt
+   * @return >0 scale factor for packet if allowed, <0 if packet should be filtered
+   */
+  double do_not_filter_packet(sculpin_packet* pkt);
 
 };
 

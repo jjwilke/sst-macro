@@ -3,8 +3,11 @@
 
 #include_next <unistd.h>
 
-#define gethostname sstmac_gethostname
+#ifndef SSTMAC_NO_REPLACEMENTS
 #define sleep       sstmac_sleep
+#endif
+
+#define gethostname sstmac_gethostname
 #define alarm       sstmac_alarm
 
 #ifdef __cplusplus
@@ -14,11 +17,14 @@ int sstmac_gethostname(const char* name, size_t sz);
 
 unsigned int sstmac_sleep(unsigned int secs);
 
+unsigned int sstmac_sleep_until(double t);
+
 unsigned int sstmac_alarm(unsigned int);
 
 #ifdef __cplusplus
 }
 #endif
+
 
 #endif
 

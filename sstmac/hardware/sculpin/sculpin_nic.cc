@@ -110,10 +110,11 @@ sculpin_nic::~sculpin_nic() throw ()
   delete ack_handler_;
   delete payload_handler_;
 #endif
+  if (inj_link_) delete inj_link_;  
 }
 
 link_handler*
-sculpin_nic::payload_handler(int port) const
+sculpin_nic::payload_handler(int port)
 {
 #if SSTMAC_INTEGRATED_SST_CORE
   if (port == nic::LogP){
@@ -131,7 +132,7 @@ sculpin_nic::payload_handler(int port) const
 }
 
 link_handler*
-sculpin_nic::credit_handler(int port) const
+sculpin_nic::credit_handler(int port)
 {
 #if SSTMAC_INTEGRATED_SST_CORE
   return new_link_handler(this, &sculpin_nic::handle_credit);
@@ -166,6 +167,8 @@ sculpin_nic::connect_input(
   event_link* link)
 {
   //nothing to do
+  //but we own the link now so have to delete it
+  delete link;
 }
 
 void
@@ -214,6 +217,7 @@ sculpin_nic::cq_handle(sculpin_packet* pkt)
   if (msg){
     recv_message(msg);
   }
+  delete pkt;
 }
 
 void

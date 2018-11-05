@@ -79,10 +79,24 @@ AC_DEFINE_UNQUOTED([OFFSET_OF_MACRO], [$offset], "the definition of the offsetof
 CLANG_LIBTOOLING_SYSTEM_LIBS=`$clang/bin/llvm-config --system-libs`
 CLANG_LIBTOOLING_LIBS=`$clang/bin/llvm-config --libs`
 
+clang_compatibility=`$srcdir/bin/config_tools/check_clang_compatibility $CXX $clang $srcdir/bin/config_tools/clang_version_test.cc $CXXFLAGS $SST_CXXFLAGS`
+if test "X$clang_compatibility" != "X"; then
+AC_MSG_ERROR([$clang_compatibility])
+fi
+
 AC_SUBST([CLANG_LIBTOOLING_LIBS])
 AC_SUBST([CLANG_LIBTOOLING_SYSTEM_LIBS])
 AC_SUBST([CLANG_LIBTOOLING_CXX_FLAGS], "`$srcdir/bin/config_tools/get_clang_includes $clang -E -v -std=c++1y -stdlib=libc++ -x c++`")
 AC_SUBST([CLANG_LIBTOOLING_C_FLAGS], "`$srcdir/bin/config_tools/get_clang_includes $clang -E -v`")
 fi
+
+clang_has_float128=`$srcdir/bin/config_tools/get_float_128 $clang/bin/clang++`
+if test "X$clang_has_float128" = "Xyes"; then
+  AC_SUBST([have_float_128], [True])
+else
+  AC_SUBST([have_float_128], [False])
+fi
+
+])
 
 ])

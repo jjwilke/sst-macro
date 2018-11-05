@@ -11,7 +11,7 @@ dnl
 
 dnl Version info
 m4_define([SPROCKIT_VERSION_TAG], 8)
-m4_define([SPROCKIT_SUBVERSION_TAG], 0)
+m4_define([SPROCKIT_SUBVERSION_TAG], 1)
 m4_define([SPROCKIT_SUBSUBVERSION_TAG], 0)
 # Enable this for releases
 dnl m4_define([SPROCKIT_SNAPSHOT_TAG])
@@ -28,7 +28,7 @@ dnl     and A is backward compatible to major version A-C
 dnl which means that C <= A,
 dnl and C == 0 means no major-version backward compatibility.
 m4_define([SPROCKIT_MAJOR_LIBVERS], 8)
-m4_define([SPROCKIT_MINOR_LIBVERS], 0)
+m4_define([SPROCKIT_MINOR_LIBVERS], 1)
 m4_define([SPROCKIT_BACKW_LIBVERS], 0)
 m4_define([SPROCKIT_LIBVERSION_TAG],
           [SPROCKIT_MAJOR_LIBVERS:SPROCKIT_MINOR_LIBVERS:SPROCKIT_BACKW_LIBVERS])
@@ -57,13 +57,6 @@ AC_DEFINE_UNQUOTED(SPROCKIT_VERSION, [SPROCKIT_VERSION_TAG])
 AC_DEFINE_UNQUOTED(SPROCKIT_SUBVERSION, [SPROCKIT_SUBVERSION_TAG])
 AC_DEFINE_UNQUOTED(SPROCKIT_SUBSUBVERSION, [SPROCKIT_SUBSUBVERSION_TAG])
 AC_SUBST(SPROCKIT_LIBVERSION, [SPROCKIT_LIBVERSION_TAG])
-
-# TODO fail if C++11 or external boost isn't given
-AX_BOOST_BASE(1.48)
-with_external_boost=$want_boost
-AM_CONDITIONAL([EXTERNAL_BOOST], [test "X$with_external_boost" = "Xyes"])
-AC_SUBST(BOOST_CPPFLAGS)
-AC_SUBST(BOOST_LDFLAGS)
 
 AC_ARG_ENABLE(sanity-check,
   [AS_HELP_STRING(

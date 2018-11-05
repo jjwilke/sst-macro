@@ -16,7 +16,7 @@ dnl
 
 # Version info, used both in library versioning and inside sstmacro.
 m4_define([SSTMAC_VERSION_TAG], 8)
-m4_define([SSTMAC_SUBVERSION_TAG], 0)
+m4_define([SSTMAC_SUBVERSION_TAG], 1)
 m4_define([SSTMAC_SUBSUBVERSION_TAG], 0)
 
 dnl Enable this for releases
@@ -65,7 +65,7 @@ dnl If incompatible changes are made: CURRENT++, REVISION=0, AGE=0
 dnl else if interfaces are added: CURRENT++, REVISION=0, AGE++
 dnl else (no interface changes): REVISION++
 m4_define([SSTMAC_CURRENT_LIBVERS],  8)
-m4_define([SSTMAC_REVISION_LIBVERS], 0)
+m4_define([SSTMAC_REVISION_LIBVERS], 1)
 m4_define([SSTMAC_AGE_LIBVERS],      0)
 m4_define([SSTMAC_LIBVERSION_TAG],
           [SSTMAC_CURRENT_LIBVERS:SSTMAC_REVISION_LIBVERS:SSTMAC_AGE_LIBVERS])
@@ -129,11 +129,11 @@ fi
 
 CHECK_DLOPEN()
 
+CHECK_SST_CORE()
+
 CHECK_CLANG()
 
 CHECK_GCC()
-
-CHECK_SST_CORE()
 
 AC_CHECK_HEADERS([mpi.h],
   have_mpi_header=yes,
@@ -144,7 +144,6 @@ if test "X$have_integrated_core" = "Xyes"; then
 ac_configure_args="$ac_configure_args --with-cxxflags='$CXXFLAGS'"
 else
 CHECK_CPP11()
-CHECK_BOOST()
 CHECK_MPI_PARALLEL()
 fi
 
@@ -184,6 +183,8 @@ CHECK_MPI_IMPLEMENTATION()
 CHECK_OTF2()
 
 CHECK_GTEST()
+
+CHECK_VTK()
 
 CHECK_MPI_TIMELINE_STATS()
 
@@ -256,8 +257,6 @@ AC_CONFIG_FILES([
  configurations/Makefile
  tests/Makefile
  tests/external/Makefile
- tests/unit_tests/Makefile
- tests/unit_tests/util/Makefile
  tests/sumi/Makefile
  tests/api/mpi/Makefile
  tests/api/globals/Makefile
@@ -313,6 +312,11 @@ echo "MPI Timeline Stats $enable_mpi_timeline"
 echo "MPI Sync Stats     $with_comm_sync_stats"
 echo "Graphviz Trace     $enable_graphviz"
 echo "Sanity Checking    $enable_sanity_check"
+if test -z "$vtk_path"; then
+echo "VTK                no"
+else
+echo "VTK                $vtk_version @ $vtk_path"
+fi
 
 echo "Testing.:"
 if test -z "$gtest_path"; then

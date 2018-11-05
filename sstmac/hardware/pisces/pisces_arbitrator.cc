@@ -49,6 +49,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #define one_indent "  "
 #define two_indent "    "
 
+#if 0
 #define pflow_arb_debug_printf_l0(format_str, ...) \
   debug_printf(sprockit::dbg::pisces,  \
     " [arbitrator] " format_str , \
@@ -67,11 +68,12 @@ Questions? Contact sst-macro-help@sandia.gov
 #define pflow_arb_debug_print_l2(format_str) \
   debug_printf(sprockit::dbg::pisces,  \
     two_indent " [arbitrator] " format_str "%s", "")
-
-//#define pflow_arb_debug_printf_l0(format_str, ...) 
-//#define pflow_arb_debug_printf_l1(format_str, ...) 
-//#define pflow_arb_debug_printf_l2(format_str, ...) 
-//#define pflow_arb_debug_print_l2(format_str) 
+#else
+#define pflow_arb_debug_printf_l0(format_str, ...)
+#define pflow_arb_debug_printf_l1(format_str, ...)
+#define pflow_arb_debug_printf_l2(format_str, ...)
+#define pflow_arb_debug_print_l2(format_str)
+#endif
 
 namespace sstmac {
 namespace hw {
@@ -149,7 +151,7 @@ pisces_null_arbitrator::pisces_null_arbitrator(sprockit::sim_parameters* params)
 }
 
 timestamp
-pisces_null_arbitrator::head_tail_delay(pisces_payload *pkt)
+pisces_null_arbitrator::head_tail_delay(pisces_packet *pkt)
 {
   timestamp ser_delay(pkt->num_bytes() / pkt->bw());
   return ser_delay;
@@ -186,9 +188,7 @@ pisces_cut_through_arbitrator(sprockit::sim_parameters* params)
 
   //thread environments might not be setup yet when allocating
   //placement new this one
-  char* plc_buf = new char[sizeof(bandwidth_epoch)];
-
-  head_ = new (plc_buf) bandwidth_epoch;
+  head_ = bandwidth_epoch::allocate_at_beginning();
   head_->bw_available = out_bw_ * bw_sec_to_tick_conversion_;
   head_->start = 0;
   //just set to super long
@@ -197,7 +197,7 @@ pisces_cut_through_arbitrator(sprockit::sim_parameters* params)
 
 
 timestamp
-pisces_cut_through_arbitrator::head_tail_delay(pisces_payload *pkt)
+pisces_cut_through_arbitrator::head_tail_delay(pisces_packet *pkt)
 {
   timestamp ser_delay(pkt->num_bytes() / pkt->bw());
   return ser_delay;
@@ -211,7 +211,7 @@ pisces_cut_through_arbitrator::~pisces_cut_through_arbitrator()
     next = next->next;
     //do not delete this for now, treat as permanent
     //this guy gets deleted and created before anything is running
-    delete e;
+    bandwidth_epoch::free_at_end(e);
   }
 }
 
@@ -288,8 +288,7 @@ pisces_cut_through_arbitrator::clean_up(ticks_t now)
       head_ = epoch->next;
       delete epoch;
       epoch = head_;
-    }
-    else { //we are in the middle of this epoch
+    } else { //we are in the middle of this epoch
       epoch->truncate_after(delta_t);
       return; //we are done
     }
@@ -314,7 +313,7 @@ pisces_cut_through_arbitrator::arbitrate(pkt_arbitration_t &st)
 void
 pisces_cut_through_arbitrator::do_arbitrate(pkt_arbitration_t &st)
 {
-  pisces_payload* payload = st.pkt;
+  pisces_packet* payload = st.pkt;
   payload->init_bw(out_bw_);
   double payload_bw = payload->bw() * bw_sec_to_tick_conversion_;
 #if SSTMAC_SANITY_CHECK
@@ -330,8 +329,7 @@ pisces_cut_through_arbitrator::do_arbitrate(pkt_arbitration_t &st)
   long bytes_queued = payload_bw * (send_start - payload->arrival().ticks_int64());
 #if SSTMAC_SANITY_CHECK
   if (bytes_queued < 0) {
-    spkt_throw_printf(sprockit::value_error,
-                     "Payload has negative number of bytes queued: bw=%12.8e send_start=%20.16e arrival=%20.16e",
+    spkt_abort_printf("Payload has negative number of bytes queued: bw=%12.8e send_start=%20.16e arrival=%20.16e",
                      payload->bw(), send_start, payload->arrival());
   }
 #endif
@@ -374,8 +372,7 @@ pisces_cut_through_arbitrator::do_arbitrate(pkt_arbitration_t &st)
         st.head_leaves = timestamp(send_start, timestamp::exact);
         st.tail_leaves = timestamp(payload_stop, timestamp::exact);
         return;
-      }
-      else if (time_to_send == epoch->length) {
+      } else if (time_to_send == epoch->length) {
         ticks_t payload_stop = epoch->start + time_to_send;
         ticks_t total_send_time = payload_stop - send_start;
         double new_bw = payload->num_bytes()*bw_tick_to_sec_conversion_ / total_send_time;
@@ -387,8 +384,7 @@ pisces_cut_through_arbitrator::do_arbitrate(pkt_arbitration_t &st)
         st.head_leaves = timestamp(send_start, timestamp::exact);
         st.tail_leaves = timestamp(payload_stop, timestamp::exact);
         return;
-      }
-      else {
+      } else {
         //this epoch is exhausted
         bytes_to_send -= epoch->bw_available * epoch->length;
         head_ = epoch->next;
@@ -421,8 +417,7 @@ pisces_cut_through_arbitrator::do_arbitrate(pkt_arbitration_t &st)
         st.head_leaves = timestamp(send_start, timestamp::exact);
         st.tail_leaves = timestamp(send_done, timestamp::exact);
         return;
-      }
-      else {
+      } else {
 #if SSTMAC_SANITY_CHECK
         if (epoch->next ==
             0) { //we should never be subtracting from the big long epoch at the end
@@ -443,14 +438,11 @@ pisces_cut_through_arbitrator::do_arbitrate(pkt_arbitration_t &st)
         epoch = epoch->next;
         pflow_arb_debug_print_l2("send not done yet");
       }
-    }
-
-
-    /**
-        The payload is sending slower than the max available bandwidth
-        However, we have a certain number of bytes that are instantly ready to go in the queue
-    */
-    else {
+    } else {
+      /**
+          The payload is sending slower than the max available bandwidth
+          However, we have a certain number of bytes that are instantly ready to go in the queue
+      */
       //the number of bytes available to send is the line
       // BA = INP * t + QUE
       //the number bytes that could have been sent is
@@ -480,14 +472,12 @@ pisces_cut_through_arbitrator::do_arbitrate(pkt_arbitration_t &st)
         st.head_leaves = timestamp(send_start, timestamp::exact);
         st.tail_leaves = timestamp(send_done, timestamp::exact);
         return;
-      }
-      else if (time_to_send == epoch->length) {
+      } else if (time_to_send == epoch->length) {
 #if SSTMAC_SANITY_CHECK
         if (epoch->next == 0) {
           //something freaked out numerically
           //time_to_send should never equal the length of the big long, last epoch
-          spkt_throw_printf(sprockit::illformed_error,
-                           "Time to send pisces is way too long:\n"
+          spkt_abort_printf("Time to send pisces is way too long:\n"
                            "send_all_time=%20.16e\n"
                            "time_to_intersect=%20.16e\n"
                            "epoch_length=%20.16e\n"
@@ -518,9 +508,7 @@ pisces_cut_through_arbitrator::do_arbitrate(pkt_arbitration_t &st)
         delete epoch;
         epoch = head_;
         pflow_arb_debug_print_l2("send not done yet");
-      }
-
-      else { //time_to_send = time_to_intersect
+      } else { //time_to_send = time_to_intersect
         //the queue is completely drained during the epoch
         epoch->truncate_after(time_to_send);
         //but we are not done yet - add the contributions
@@ -532,7 +520,7 @@ pisces_cut_through_arbitrator::do_arbitrate(pkt_arbitration_t &st)
     }
 
     if (!head_) {
-      spkt_throw_printf(sprockit::illformed_error, "head is null");
+      spkt_abort_printf("pisces_arbitrator: head is null");
     }
 
   }

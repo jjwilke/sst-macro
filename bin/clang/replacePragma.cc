@@ -163,7 +163,7 @@ struct ReplaceStatementVisit {
           if (vd->hasInit()) {
             cfg.replacedExprs.push_back(vd->getInit());
           } else {
-            errorAbort(stmt->getLocStart(), CI,
+            errorAbort(getStart(stmt), CI,
               "replace pragma applied to declaration with no initializer");
           }
         }
@@ -183,7 +183,7 @@ SSTReplacePragma::run(Stmt *s, std::list<const Expr*>& replacedExprs)
   recurseAll<PreVisit,PostVisit>(s, *CI, rcfg);
   if (replacedExprs.size() == 0){
     std::string error = "replace pragma '" + fxn_ + "' did not match anything";
-    errorAbort(s->getLocStart(), *CI, error);
+    errorAbort(s, *CI, error);
   }
 }
 
@@ -258,7 +258,7 @@ SSTInitPragma::activate(Stmt *s, Rewriter &r, PragmaConfig &cfg)
     repl_case(DeclStmt,s,r);
     repl_case(BinaryOperator,s,r);
     default:
-      errorAbort(s->getLocStart(), *CI,
+      errorAbort(s, *CI,
                  "pragma init not applied to initialization statement");
   }
 #undef repl_case
@@ -280,25 +280,25 @@ void
 SSTInitPragma::activateDeclStmt(DeclStmt* s, Rewriter& r)
 {
   if (!s->isSingleDecl()){
-    errorAbort(s->getLocStart(), *CI,
+    errorAbort(s, *CI,
                "pragma init cannot apply to multiple declaration");
   }
   Decl* d = s->getSingleDecl();
   if (!isa<VarDecl>(d)){
-    errorAbort(s->getLocStart(), *CI,
+    errorAbort(s, *CI,
                "pragma init only applies to variable declarations");
   }
   VarDecl* vd = cast<VarDecl>(d);
   if (!vd->hasInit()){
-    errorAbort(s->getLocStart(), *CI,
+    errorAbort(s, *CI,
                "pragma init applied to variable without initializer");
   }
   replace(vd->getInit(), r, init_, *CI);
 }
 
 std::string
-SSTReplacePragmaHandler::parse(CompilerInstance& CI, SourceLocation loc,
-                               const std::list<Token>& tokens, std::ostream& os)
+SSTReplacePragmaHandler::parse(SourceLocation loc,
+    CompilerInstance& CI, const std::list<Token>& tokens, std::ostream& os)
 {
   if (tokens.size() < 2){
     errorAbort(loc, CI, "pragma replace requires both a function and replacement text");
@@ -310,47 +310,47 @@ SSTReplacePragmaHandler::parse(CompilerInstance& CI, SourceLocation loc,
 
   auto iter = tokens.begin(); ++iter; //skip front
   auto end = tokens.end();
-  SSTPragma::tokenStreamToString(loc,iter,end,os,CI);
+  SSTPragma::tokenStreamToString(iter,end,os,CI);
 
   return fxn.getIdentifierInfo()->getNameStart();
 }
 
 SSTPragma*
-SSTReplacePragmaHandler::allocatePragma(SourceLocation loc, const std::list<Token> &tokens) const
+SSTReplacePragmaHandler::handleSSTPragma(const std::list<Token> &tokens) const
 {
   std::stringstream sstr;
-  std::string fxn = parse(ci_, loc, tokens, sstr);
+  std::string fxn = parse(pragmaLoc_, ci_, tokens, sstr);
   return new SSTReplacePragma(fxn, sstr.str());
 }
 
 SSTPragma*
-SSTStartReplacePragmaHandler::allocatePragma(SourceLocation loc, const std::list<Token> &tokens) const
+SSTStartReplacePragmaHandler::handleSSTPragma(const std::list<Token> &tokens) const
 {
   std::stringstream sstr;
-  std::string fxn = SSTReplacePragmaHandler::parse(ci_, loc, tokens, sstr);
+  std::string fxn = SSTReplacePragmaHandler::parse(pragmaLoc_, ci_, tokens, sstr);
   return new SSTStartReplacePragma(fxn, sstr.str());
 }
 
 SSTPragma*
-SSTStopReplacePragmaHandler::allocatePragma(SourceLocation loc, const std::list<Token> &tokens) const
+SSTStopReplacePragmaHandler::handleSSTPragma(const std::list<Token> &tokens) const
 {
   std::string fxn = tokens.front().getIdentifierInfo()->getNameStart();
   return new SSTStopReplacePragma(fxn, "not relevant");
 }
 
 SSTPragma*
-SSTInitPragmaHandler::allocatePragma(SourceLocation loc, const std::list<Token> &tokens) const
+SSTInitPragmaHandler::handleSSTPragma(const std::list<Token> &tokens) const
 {
   std::stringstream sstr;
-  SSTPragma::tokenStreamToString(loc, tokens.begin(), tokens.end(), sstr, ci_);
+  SSTPragma::tokenStreamToString(tokens.begin(), tokens.end(), sstr, ci_);
   return new SSTInitPragma(sstr.str());
 }
 
 SSTPragma*
-SSTInsteadPragmaHandler::allocatePragma(SourceLocation loc, const std::list<Token> &tokens) const
+SSTInsteadPragmaHandler::handleSSTPragma(const std::list<Token> &tokens) const
 {
   std::stringstream sstr;
-  SSTPragma::tokenStreamToString(loc, tokens.begin(), tokens.end(), sstr, ci_);
+  SSTPragma::tokenStreamToString(tokens.begin(), tokens.end(), sstr, ci_);
   return new SSTInsteadPragma(sstr.str());
 }
 

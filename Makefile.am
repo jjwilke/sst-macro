@@ -13,12 +13,13 @@ include $(top_srcdir)/Makefile.common
 
 # Files that should be distributed but are not built.
 EXTRA_DIST = LICENSE bootstrap.sh \
-  developer-sstmacro-8.0.pdf \
-  manual-sstmacro-8.0.pdf \
+  developer-sstmacro-8.1.pdf \
+  manual-sstmacro-8.1.pdf \
   pdes-report-7.2.pdf \
   docs \
   share \
-  skeletons
+  skeletons \
+	configurations
 
 SUBDIRS = $(subdirs)
 
@@ -32,8 +33,6 @@ dist_bin_SCRIPTS = sstmacro-libtool
 
 ACLOCAL_AMFLAGS = -I acinclude
 
-QMAKE=@qmake_executable@
-
 AM_FFLAGS = $(FFLAG_INT)
 AM_CPPFLAGS += $(SCALAPACK_CPPFLAGS)
 AM_CPPFLAGS += $(LAPACK_CPPFLAGS)
@@ -42,10 +41,6 @@ AM_CPPFLAGS += $(BLAS_CPPFLAGS)
 AM_LDFLAGS += $(SCALAPACK_LDFLAGS)
 AM_LDFLAGS += $(LAPACK_LDFLAGS)
 AM_LDFLAGS += $(BLAS_LDFLAGS)
-
-if EXTERNAL_BOOST
-AM_LDFLAGS += $(BOOST_LDFLAGS)
-endif
 
 .PHONY: doc superclean gui
 doc:

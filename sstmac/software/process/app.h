@@ -95,8 +95,6 @@ class app : public thread
 
   int allocate_tls_key(destructor_fxn fnx);
 
-  static const int use_omp_num_threads = -1;
-
   static sprockit::sim_parameters* get_params();
 
   app* parent_app() const override {
@@ -115,9 +113,6 @@ class app : public thread
     int nflops_per_loop,
     int nintops_per_loop,
     int bytes_per_loop);
-
-  void compute_detailed(uint64_t flops, uint64_t intops, uint64_t bytes,
-                        int nthread = use_omp_num_threads);
 
   void compute_block_read(uint64_t bytes);
 
@@ -146,6 +141,12 @@ class app : public thread
   sprockit::sim_parameters* params() const {
     return params_;
   }
+
+  char* getenv(const std::string& name) const;
+
+  int putenv(char* input);
+
+  int setenv(const std::string& name, const std::string& value, int overwrite);
 
   /**
    * Let a parent application know about the existence of a subthread
@@ -217,6 +218,10 @@ class app : public thread
     unique_name_ = name;
   }
 
+  static void check_dlopen(int aid, sprockit::sim_parameters* params);
+
+  void check_dlclose();
+
  protected:
   friend class thread;
 
@@ -230,6 +235,8 @@ class app : public thread
  private:
   char* allocate_data_segment(bool tls);
 
+  void compute_detailed(uint64_t flops, uint64_t intops, uint64_t bytes, int nthread);
+
   lib_compute_memmove* compute_lib_;
   std::string unique_name_;
 
@@ -237,19 +244,30 @@ class app : public thread
   int next_condition_;
   int next_mutex_;
   uint64_t min_op_cutoff_;
-  int omp_num_threads_;
 
   std::map<long, thread*> subthreads_;
   std::map<int, mutex_t> mutexes_;
   std::map<int, condition_t> conditions_;
   std::map<int, destructor_fxn> tls_key_fxns_;
   std::map<std::string, api*> apis_;
+  std::map<std::string,std::string> env_;
+
+  char env_string_[64];
 
   char* globals_storage_;
 
   bool notify_;
 
   int rc_;
+
+  struct dlopen_entry {
+    void* handle;
+    int refcount;
+    std::string name;
+    dlopen_entry() : handle(nullptr), refcount(0){}
+  };
+
+  static std::map<int, dlopen_entry> dlopens_;
 
 };
 

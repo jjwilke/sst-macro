@@ -53,6 +53,7 @@ typedef int (*main_fxn)(int,char**);
 typedef int (*empty_main_fxn)();
 
 #include <sstmac/common/sstmac_config.h>
+#include <sstmac/software/process/tls.h>
 #ifndef __cplusplus
 #include <stdbool.h>
 #endif
@@ -69,11 +70,20 @@ double sstmac_sim_time();
 
 #ifdef __cplusplus
 
-#include <sstmac/software/process/cppglobal.h>
+//hate that I have to do this for cmake
+#if __cplusplus < 201103L
+#define char16_t char16type
+#define char32_t char32type
+#include <sstream>
+#undef char16_t
+#undef char32_t
+#endif
 
+#include <sstmac/software/process/cppglobal.h>
 #include <new>
 #include <utility>
 
+#if __cplusplus >= 201103L
 namespace sstmac {
 
 class vector {
@@ -89,13 +99,21 @@ class vector {
   }
 
   template <class... Args>
-  void push_back(Args... args){
+  void push_back(Args...){
     ++size_;
   }
 
   template <class... Args>
-  void emplace_back(Args... args){
+  void emplace_back(Args...){
     ++size_;
+  }
+
+  std::nullptr_t data() const {
+    return nullptr;
+  }
+
+  std::nullptr_t data() {
+    return nullptr;
   }
 
   bool empty() const {
@@ -109,8 +127,9 @@ class vector {
  private:
   unsigned long  size_;
 };
-}
 
+}
+#endif
 
 #include <sprockit/sim_parameters.h>
 #include <sstmac/software/process/global.h>
@@ -118,7 +137,12 @@ class vector {
 
 /** Automatically inherit runtime types */
 using sprockit::sim_parameters;
-
+extern sprockit::sim_parameters* get_params();
+//end C++
+#else
+//need for C
+static void* nullptr = 0;
+#endif
 
 #define define_var_name_pass_through(x) sstmac_dont_ignore_this##x
 #define define_var_name(x) define_var_name_pass_through(x)
@@ -134,14 +158,8 @@ using sprockit::sim_parameters;
  static int dont_ignore_this = \
   user_skeleton_main_init_fxn(SST_APP_NAME_QUOTED, user_skeleton_main); \
  static int user_skeleton_main(__VA_ARGS__)
-#endif
-
-extern sprockit::sim_parameters* get_params();
-
 #else
-static void* nullptr = 0;
-
-#define main ignore_for_app_name; const char* sstmac_appname_str = SST_APP_NAME_QUOTED; int main
+#define main sstmac_ignore_for_app_name(); static const char* sstmac_appname_str = SST_APP_NAME_QUOTED; int main
 #endif
 
 
@@ -168,13 +186,13 @@ void sstmac_advance_time(const char* param_name);
 #endif
 
 
+#ifndef SSTMAC_INLINE
 #ifdef __STRICT_ANSI__
 #define SSTMAC_INLINE
 #else
 #define SSTMAC_INLINE inline
 #endif
-
-
+#endif
 
 static SSTMAC_INLINE char* get_sstmac_global_data(){
   if (sstmac_global_stacksize == 0){
@@ -183,23 +201,19 @@ static SSTMAC_INLINE char* get_sstmac_global_data(){
     }
     return static_init_glbls_segment;
   } else {
-    int stack; int* stackPtr = &stack;
-    uintptr_t localStorage = ((uintptr_t) stackPtr/sstmac_global_stacksize)*sstmac_global_stacksize;
-    char** globalMapPtr = (char**)(localStorage + sizeof(int));
+    char** globalMapPtr = (char**)(get_sstmac_tls() + SSTMAC_TLS_GLOBAL_MAP);
     return *globalMapPtr;
   }
 }
 
-static SSTMAC_INLINE char* get_sstmac_tlsl_data(){
+static SSTMAC_INLINE char* get_sstmac_tls_data(){
   if (sstmac_global_stacksize == 0){
     if (static_init_tls_segment == 0){
       allocate_static_init_tls_segment();
     }
     return static_init_tls_segment;
   } else {
-    int stack; int* stackPtr = &stack;
-    uintptr_t localStorage = ((uintptr_t) stackPtr/sstmac_global_stacksize)*sstmac_global_stacksize;
-    char** globalMapPtr = (char**)(localStorage + sizeof(int) + sizeof(void*));
+    char** globalMapPtr = (char**)(get_sstmac_tls() + SSTMAC_TLS_TLS_MAP);
     return *globalMapPtr;
   }
 }

@@ -90,8 +90,17 @@ class dragonfly_plus : public dragonfly
 
   virtual ~dragonfly_plus() {}
 
+  vtk_switch_geometry get_vtk_geometry(switch_id sid) const override;
+
   int ndimensions() const {
     return 3;
+  }
+
+  void endpoints_connected_to_injection_switch(switch_id swaddr,
+         std::vector<injection_port>& nodes) const override;
+
+  int max_num_ports() const override {
+    return std::max(a_ + h_, a_ + concentration());
   }
 
   /**
@@ -122,28 +131,30 @@ class dragonfly_plus : public dragonfly
     return (sid % num_leaf_switches_) / a_;
   }
 
-  int num_switches() const override {
+  switch_id num_switches() const override {
     return 2 * a_ * g_;
   }
 
-  int num_leaf_switches() const override {
+  switch_id num_leaf_switches() const override {
     return num_leaf_switches_;
   }
 
-  void minimal_route_to_switch(
-      int& path_rotater,
-      switch_id current_sw_addr,
-      switch_id dest_sw_addr,
-      packet::path &path) const;
+  bool is_curved_vtk_link(switch_id sid, int port) const override {
+    return false;
+  }
 
-  int minimal_distance(switch_id src, switch_id dst) const override;
+  int minimal_distance(switch_id src, switch_id dst) const;
+
+  int num_hops_to_node(node_id src, node_id dst) const override {
+    return minimal_distance(src / concentration_, dst/ concentration_);
+  }
 
   int diameter() const override {
     return 5;
   }
 
   coordinates switch_coords(switch_id sid) const override {
-    coordinates c(2);
+    coordinates c(3);
     c[0] = computeRow(sid);
     c[1] = computeA(sid);
     c[2] = computeG(sid);
@@ -156,6 +167,7 @@ class dragonfly_plus : public dragonfly
 
  private:
   int num_leaf_switches_;
+  double vtk_row_spacing_;
 };
 
 }

@@ -30,6 +30,7 @@ library_include_HEADERS = \
  gatherv.h \
  bcast.h \
  reduce.h \
+ reduce_scatter.h \
  scan.h \
  scatter.h \
  scatterv.h \
@@ -49,8 +50,6 @@ library_include_HEADERS = \
  options.h \
  partner_timeout.h \
  ping.h \
- rdma.h \
- rdma_mdata.h \
  timeout.h \
  transport.h \
  transport_fwd.h 
@@ -66,6 +65,7 @@ libsumi_la_SOURCES = \
  gather.cc \
  gatherv.cc \
  reduce.cc \
+ reduce_scatter.cc \
  scan.cc \
  scatter.cc \
  scatterv.cc \

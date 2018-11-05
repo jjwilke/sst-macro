@@ -45,11 +45,12 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/hardware/router/router.h>
 #include <sstmac/hardware/switch/network_switch.h>
 #include <sstmac/hardware/topology/topology.h>
-#include <sstmac/hardware/topology/multipath_topology.h>
 #include <sprockit/util.h>
 #include <sprockit/delete.h>
 #include <sprockit/sim_parameters.h>
 #include <sprockit/keyword_registration.h>
+#include <sstmac/hardware/topology/fat_tree.h>
+#include <sstmac/hardware/topology/fully_connected.h>
 
 RegisterDebugSlot(router);
 RegisterDebugSlot(routing);
@@ -81,16 +82,21 @@ router::router(sprockit::sim_parameters* params, topology *top, network_switch *
   rng_ = RNG::MWC::construct(seeds);
 }
 
-switch_id
-router::random_intermediate_switch(switch_id current, switch_id dest, uint32_t seed)
+bool
+router::switch_paths(
+  int orig_distance,
+  int new_distance,
+  int orig_port,
+  int new_port) const
 {
-  switch_id sid = current;
-  uint32_t attempt = 0;
-  while (current == sid) {
-    sid = random_number(top_->num_switches(), attempt, seed);
-    ++attempt;
-  }
-  return sid;
+  int orig_queue_length = netsw_->queue_length(orig_port);
+  int new_queue_length = netsw_->queue_length(new_port);
+  int orig_weight = orig_queue_length * orig_distance;
+  int valiant_weight = new_queue_length * new_distance;
+  rter_debug("comparing minimal(%d) %d=%dx%d against non-minimal(%d) %d=%dx%d",
+             orig_port, orig_weight, orig_queue_length, orig_distance,
+             new_port, valiant_weight, new_queue_length, new_distance);
+  return valiant_weight < orig_weight;
 }
 
 uint32_t
@@ -114,17 +120,69 @@ router::~router()
 void
 router::compatibility_check() const
 {
-  multipath_topology* mtop = test_cast(multipath_topology, top_);
-  if (mtop){
-    spkt_abort_printf("chosen router model is not compatible with multipath topologies");
-  }
 }
 
-switch_id
-router::find_ejection_site(node_id node_addr, packet::path &path) const
-{
-  return top_->node_to_ejection_switch(node_addr, path.outport());
-}
+class fully_connected_minimal_router : public router {
+ public:
+  FactoryRegister("fully_connected_minimal",
+              router, fully_connected_minimal_router,
+              "router implementing minimal routing for fully connected")
+
+  fully_connected_minimal_router(sprockit::sim_parameters* params, topology *top,
+                         network_switch *netsw)
+    : router(params, top, netsw)
+  {
+    full_ = safe_cast(fully_connected, top);
+  }
+
+  std::string to_string() const override {
+    return "fully connected minimal router";
+  }
+
+  int num_vc() const override {
+    return 1;
+  }
+
+  void route(packet *pkt) override {
+    switch_id ej_addr = pkt->toaddr() / full_->concentration();
+    if (ej_addr == my_addr_){
+      pkt->set_edge_outport(pkt->toaddr() % full_->concentration());
+    } else {
+      pkt->set_edge_outport(ej_addr);
+    }
+    pkt->set_deadlock_vc(0);
+  }
+
+ private:
+  fully_connected* full_;
+};
+
+class star_minimal_router : public router {
+ public:
+  FactoryRegister("star_minimal",
+              router, star_minimal_router,
+              "router implementing minimal routing for star")
+
+  star_minimal_router(sprockit::sim_parameters* params, topology *top,
+                      network_switch *netsw)
+    : router(params, top, netsw)
+  {
+  }
+
+  std::string to_string() const override {
+    return "star minimal router";
+  }
+
+  int num_vc() const override {
+    return 1;
+  }
+
+  void route(packet *pkt) override {
+    pkt->set_edge_outport(pkt->toaddr());
+  }
+
+ private:
+};
 
 }
 }

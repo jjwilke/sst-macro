@@ -90,8 +90,6 @@ class event_scheduler :
 
   void send_now_self_event_queue(event_queue_entry* ev);
 
-  void register_stat(stat_collector* coll, stat_descr_t* descr);
-
   uint32_t component_id() const {
     return id_;
   }
@@ -146,6 +144,8 @@ class event_scheduler :
   SST::Component* comp_;
 #else
  public:
+  void register_stat(stat_collector* coll, stat_descr_t* descr);
+
   uint32_t next_seqnum() {
     return seqnum_++;
   }
@@ -293,6 +293,10 @@ class event_subcomponent
     parent_(parent),
     now_(parent->now_ptr())
   {
+  }
+
+  event_scheduler* parent() const {
+    return parent_;
   }
 
  private:
@@ -452,7 +456,7 @@ class local_link : public event_link {
   }
 
   std::string to_string() const override {
-    return dst_->to_string();
+    return handler_->to_string();
   }
 
   void handle(event* ev) override {

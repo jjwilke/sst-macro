@@ -59,7 +59,7 @@ SSTLoopCountPragma::SSTLoopCountPragma(const std::list<Token> &tokens) :
   SSTPragma(LoopCount)
 {
   std::stringstream sstr;
-  SSTPragma::tokenStreamToString(startLoc, tokens.begin(), tokens.end(), sstr, *CI);
+  SSTPragma::tokenStreamToString(tokens.begin(), tokens.end(), sstr, *CI);
   loopCount_ = sstr.str();
 }
 
@@ -162,16 +162,264 @@ SSTComputePragma::visitForStmt(ForStmt *stmt, Rewriter &r, PragmaConfig& cfg)
 }
 
 void
+SSTMemoizeComputePragma::doReplace(SourceLocation startInsert, SourceLocation finalInsert, Stmt* fullStmt,
+                                   bool insertStartAfter, bool insertFinalAfter,
+                                   Rewriter& r, Expr** callArgs, const ParmVarDecl** callParams)
+{
+  std::string argsStr;
+  if (!fxnArgInputs_.empty()){
+    if (!callArgs && !callParams){
+      internalError(startInsert, *CI,
+           "have function args, but no call args or call params");
+    }
+    //this better be a function call
+    PrettyPrinter pp;
+    for (int idx : fxnArgInputs_){
+      pp.os << ",";
+      if (callArgs) pp.print(callArgs[idx]);
+      else          pp.os << callParams[idx]->getNameAsString();
+    }
+    argsStr = pp.str();
+  } else if (!inputs_.empty()) {
+    std::stringstream args_sstr;
+    for (auto& str : inputs_){
+      args_sstr << "," << str;
+    }
+    argsStr = args_sstr.str();
+  }
+
+
+
+  if (visitor->memoizePass()){
+    PresumedLoc ploc = CI->getSourceManager().getPresumedLoc(startInsert);
+    int line = ploc.getLine();
+
+    std::stringstream start_sstr;
+    start_sstr << "int sstmac_thr_tag" << line << " = sstmac_start_memoize("
+       << "\"" << token_ << "\",\"" << model_ << "\"" << "); ";
+    r.InsertText(startInsert, start_sstr.str(), insertStartAfter);
+    std::stringstream finish_sstr;
+    finish_sstr << "; sstmac_finish_memoize" << inputs_.size() << "("
+                << "sstmac_thr_tag" << line << ","
+                << "\"" << token_ << "\"" << argsStr << ");";
+
+    if (insertFinalAfter) finalInsert = finalInsert.getLocWithOffset(1);
+    r.InsertText(finalInsert, finish_sstr.str(), insertFinalAfter);
+  } else {
+    std::stringstream sstr;
+    sstr << "{ sstmac_compute_memoize" << inputs_.size() << "("
+       << "\"" << token_ << "\"" << argsStr << "); }";
+    if (skeletonize_){
+      SourceRange rng(startInsert, finalInsert);
+      replace(rng, r, sstr.str(), *CI);
+      throw StmtDeleteException(fullStmt);
+    } else {
+      r.InsertText(startInsert, sstr.str(), insertStartAfter);
+    }
+  }
+}
+
+void
+SSTMemoizeComputePragma::activate(Stmt *s, Rewriter &r, PragmaConfig &cfg)
+{
+  Expr** args = nullptr;
+  if (!fxnArgInputs_.empty()){
+    CallExpr* expr = nullptr;
+    switch (s->getStmtClass()){
+    case Stmt::CallExprClass:
+    case Stmt::CXXMemberCallExprClass:
+      expr = cast<CallExpr>(s);
+      args = expr->getArgs();
+      //doReplace(getStart(s), s->getLocEnd(), s,
+      //          false, true, r, expr->getArgs(), nullptr);
+      break;
+      break;
+    default:
+      internalError(getStart(expr), *CI,
+                 "memoize pragma activated on statement that is not a call expression");
+    }
+  }
+
+  cfg.astVisitor->getActiveNamespace()->addMemoization(token_, model_);
+  doReplace(getStart(s), getEnd(s), s,
+              false, true, r, args, nullptr);
+}
+
+void
+SSTMemoizeComputePragma::activate(Decl *d, Rewriter &r, PragmaConfig &cfg)
+{
+  FunctionDecl* fd = nullptr;
+  switch(d->getKind()){
+  case Decl::Function:
+  case Decl::CXXMethod:
+    fd = cast<FunctionDecl>(d);
+    break;
+  default:
+    errorAbort(d, *CI, "memoize pragma applied to declaration that is not a function");
+  }
+
+  if (!givenName_){
+    token_ = fd->getNameAsString();
+  }
+
+  cfg.astVisitor->getActiveNamespace()->addMemoization(token_, model_);
+
+  auto iter = cfg.functionPragmas.find(fd->getCanonicalDecl());
+  if (iter == cfg.functionPragmas.end()){
+    cfg.functionPragmas[fd->getCanonicalDecl()].insert(this);
+    //first time hitting the function decl -  configure it
+    //don't do modifications yet
+    //just in case this gets called twice for a weird reason
+    fxnArgInputs_.clear();
+    for (auto& str : inputs_){
+      bool found = false;
+      for (int i=0; i < fd->getNumParams(); ++i){
+        ParmVarDecl* pvd = fd->getParamDecl(i);
+        if (pvd->getNameAsString() == str){
+          found = true;
+          fxnArgInputs_.push_back(i);
+          break;
+        }
+      }
+      if (!found){
+        std::string error = "memoization input " + str
+            + " to function declaration could not be matched to any parameter";
+        errorAbort(d, *CI, error);
+      }
+    }
+  }
+
+  if (fd->isThisDeclarationADefinition() && fd->getBody()){
+    if (fd->getBody()->getStmtClass() != Stmt::CompoundStmtClass){
+      internalError(fd, *CI, "function decl body is not a compound statement");
+    }
+
+    if (written_.find(fd) == written_.end()){
+      CompoundStmt* cs = cast<CompoundStmt>(fd->getBody());
+      std::vector<const ParmVarDecl*> params(fd->getNumParams());
+      for (int i=0; i < fd->getNumParams(); ++i){
+        params[i] = fd->getParamDecl(i);
+      }
+      bool replaceBody = skeletonize_ && !visitor->memoizePass();
+      if (cs->body_front()){
+        doReplace(replaceBody ? getStart(cs) : getStart(cs->body_front()),
+                  getEnd(cs), cs,
+                  false, false, r, nullptr, params.data());
+      }
+      written_.insert(fd);
+    }
+
+  }
+}
+
+void
+SSTImplicitStatePragma::doReplace(SourceLocation startInsert, SourceLocation finalInsert,
+                                  bool insertStartAfter, bool insertFinalAfter,
+                                  Rewriter& r, const std::map<std::string,std::string>& values)
+{
+  std::string state_type = visitor->memoizePass() ? "memoize" : "compute";
+
+  bool first = true;
+  std::stringstream start_sstr;
+  start_sstr << "sstmac_set_implicit_" << state_type << "_state" << values_.size() << "(";
+  for (auto& pair : values){
+    if (!first) start_sstr << ",";
+    start_sstr << pair.first << "," << pair.second;
+    first = false;
+  }
+  start_sstr << "); ";
+  r.InsertText(startInsert, start_sstr.str(), insertStartAfter);
+
+  first = true;
+  std::stringstream finish_sstr;
+  finish_sstr << "; sstmac_unset_implicit_" << state_type << "_state" << values_.size() << "(";
+  for (auto& pair : values){
+    if (!first) finish_sstr << ",";
+    first = false;
+    finish_sstr << pair.first;
+  }
+  finish_sstr << ");";
+
+  if (insertFinalAfter) finalInsert = finalInsert.getLocWithOffset(1);
+  r.InsertText(finalInsert, finish_sstr.str(), insertFinalAfter);
+}
+
+void
+SSTImplicitStatePragma::activate(Stmt *s, Rewriter &r, PragmaConfig &cfg)
+{
+  doReplace(getStart(s), getEnd(s),
+            false, true, r, values_);
+}
+
+void
+SSTImplicitStatePragma::activate(Decl *d, Rewriter &r, PragmaConfig &cfg)
+{
+  FunctionDecl* fd = nullptr;
+  switch(d->getKind()){
+  case Decl::Function:
+  case Decl::CXXMethod:
+    fd = cast<FunctionDecl>(d);
+    break;
+  default:
+    errorAbort(d, *CI, "implicit state pragma applied to declaration that is not a function");
+  }
+
+  auto& set = cfg.functionPragmas[fd->getCanonicalDecl()];
+  if (set.find(this) == set.end()){
+    set.insert(this);
+    //first time hitting the function decl -  configure it
+    //don't do modifications yet
+    //just in case this gets called twice for a weird reason
+    fxnArgValues_.clear();
+    for (auto& pair : values_){
+      bool found = false;
+      for (int i=0; i < fd->getNumParams(); ++i){
+        ParmVarDecl* pvd = fd->getParamDecl(i);
+        if (pvd->getNameAsString() == pair.second){
+          found = true;
+          fxnArgValues_[pair.first] = i;
+          break;
+        }
+      }
+      if (!found){
+        std::string error = "memoization input " + pair.first
+            + " to function declaration could not be matched to any parameter";
+        errorAbort(d, *CI, error);
+      }
+    }
+  }
+
+  if (fd->isThisDeclarationADefinition() && fd->getBody()){
+    if (fd->getBody()->getStmtClass() != Stmt::CompoundStmtClass){
+      internalError(fd, *CI, "function decl body is not a compound statement");
+    }
+    if (written_.find(fd) == written_.end()){
+      CompoundStmt* cs = cast<CompoundStmt>(fd->getBody());
+      std::vector<const ParmVarDecl*> params(fd->getNumParams());
+      std::map<std::string,std::string> values;
+      for (auto& pair : fxnArgValues_){
+        values[pair.first] = fd->getParamDecl(pair.second)->getNameAsString();
+      }
+      if (cs->body_front()){
+        doReplace(getStart(cs->body_front()),
+                  getEnd(cs), false, false, r, values);
+      }
+      written_.insert(fd);
+    }
+  }
+}
+
+void
 SSTMemoryPragma::activate(Stmt *s, Rewriter &r, PragmaConfig &cfg)
 {
   cfg.computeMemorySpec = memSpec_;
 }
 
 SSTPragma*
-SSTMemoryPragmaHandler::allocatePragma(SourceLocation loc, const std::list<Token> &tokens) const
+SSTMemoryPragmaHandler::handleSSTPragma(const std::list<Token> &tokens) const
 {
   std::stringstream sstr;
-  SSTPragma::tokenStreamToString(loc, tokens.begin(), tokens.end(), sstr, ci_);
+  SSTPragma::tokenStreamToString(tokens.begin(), tokens.end(), sstr, ci_);
   return new SSTMemoryPragma(sstr.str());
 }
 
@@ -181,7 +429,7 @@ enum OpenMPProperty {
 };
 
 SSTPragma*
-SSTOpenMPParallelPragmaHandler::allocatePragma(SourceLocation loc, const std::list<Token> &tokens) const
+SSTOpenMPParallelPragmaHandler::handleSSTPragma(const std::list<Token> &tokens) const
 {
   static const std::map<std::string, OpenMPProperty> omp_property_map = {
     {"num_threads", OMP_NTHREAD},
@@ -232,5 +480,85 @@ SSTOpenMPParallelPragmaHandler::allocatePragma(SourceLocation loc, const std::li
   } //end for
 
   return new SSTComputePragma(nthread);
+}
+
+SSTPragma*
+SSTMemoizeComputePragmaHandler::allocatePragma(const std::map<std::string, std::list<std::string>>& in_args) const
+{
+  auto args = in_args;
+  bool skeletonize = true;
+  auto iter = args.find("skeletonize");
+  if (iter != args.end()){
+    std::string val = iter->second.front();
+    if (val == "true"){
+      skeletonize = true;
+    } else if (val == "false"){
+      skeletonize = false;
+    } else {
+      errorAbort(pragmaLoc_, ci_, "skeletonize argument must be true/false");
+    }
+    args.erase(iter);
+  }
+
+  iter = args.find("inputs");
+  std::list<std::string> inputs;
+  if (iter != args.end()){
+    inputs = std::move(iter->second);
+    args.erase(iter);
+  }
+
+  std::string model = "null";
+  iter = args.find("model");
+  if (iter != args.end()){
+    model = iter->second.front();
+    args.erase(iter);
+  }
+
+  std::string name;
+  bool givenName = false;
+  iter = args.find("name");
+  if (iter != args.end()){
+    name = iter->second.front();
+    args.erase(iter);
+    givenName = true;
+  } else {
+    PresumedLoc ploc = ci_.getSourceManager().getPresumedLoc(pragmaLoc_);
+    std::stringstream token_sstr;
+    token_sstr << ploc.getFilename() << ":" << ploc.getLine();
+    name = token_sstr.str();
+  }
+
+  if (!args.empty()){
+    //we got passed an invalid argument
+    std::stringstream sstr;
+    sstr << "got invalid args for memoize pragma: ";
+    for (auto& pair : args){
+      sstr << pair.first << ",";
+    }
+    errorAbort(pragmaLoc_, ci_, sstr.str());
+  }
+
+  return new SSTMemoizeComputePragma(name, skeletonize, model,
+                                     std::move(inputs), givenName);
+}
+
+SSTPragma*
+SSTImplicitStatePragmaHandler::allocatePragma(const std::map<std::string, std::list<std::string>>& in_args) const
+{
+
+  std::map<std::string,std::string> values;
+  for (auto& pair : in_args){
+    if (pair.second.size() > 1){
+      std::string error = "cannot specify multiple values for implicit state " + pair.first;
+      errorAbort(pragmaLoc_, ci_, error);
+    }
+    if (pair.second.empty()){
+      values[pair.first] = "0";
+    } else {
+      values[pair.first] = pair.second.front();
+    }
+  }
+
+  return new SSTImplicitStatePragma(std::move(values));
 }
 

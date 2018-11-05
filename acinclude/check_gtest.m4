@@ -14,6 +14,7 @@ AC_ARG_WITH(gtest,
   [ gtest_path="" ]
 )
 
+
 AH_TEMPLATE([GTEST_ENABLED], [Whether GTEST is available and GTEST stats should be built])
 if test -z "$gtest_path"; then
 #AC_MSG_ERROR([gtest can only be enabled by giving the install prefix --with-gtest=PREFIX, even for system default path])
@@ -28,5 +29,23 @@ AC_SUBST([GTEST_CPPFLAGS])
 AC_SUBST([GTEST_LIBS])
 AC_SUBST([GTEST_LDFLAGS])
 fi
+
+SAVE_CPPFLAGS="$CPPFLAGS"
+SAVE_LIBS="$LIBS"
+SAVE_LDFLAGS="$LDFLAGS"
+
+CPPFLAGS="$GTEST_CPPFLAGS"
+LIBS="$GTEST_LIBS"
+LDFLAGS="$GTEST_LDFLAGS"
+
+AC_CHECK_HEADER([gtest/gtest.h], found_gtest=yes, found_gtest=no)
+
+if test "$found_gtest" = "no"; then
+AC_MSG_ERROR([Unable to locate GTEST at $gtest_path])
+fi
+
+CPPFLAGS="$SAVE_CPPFLAGS"
+LIBS="$SAVE_LIBS"
+LDFLAGS="$SAVE_LDFLAGS"
 
 ])

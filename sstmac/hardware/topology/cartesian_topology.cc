@@ -48,10 +48,8 @@ Questions? Contact sst-macro-help@sandia.gov
 namespace sstmac {
   namespace hw {
 
-cartesian_topology::cartesian_topology(sprockit::sim_parameters *params,
-                                       InitMaxPortsIntra i1,
-                                       InitGeomEjectID i2) :
-  structured_topology(params, i1, i2)
+cartesian_topology::cartesian_topology(sprockit::sim_parameters *params) :
+  structured_topology(params)
 {
   params->get_vector_param("geometry", dimensions_);
   if (dimensions_.size() == 0) {
@@ -81,8 +79,7 @@ cartesian_topology::node_coords(node_id uid) const
 {
   if (concentration_ == 1) {
     return switch_coords((switch_id)uid);
-  }
-  else {
+  } else {
     switch_id swid(uid / concentration_);
     int lastidx = uid % concentration_;
     coordinates coords = switch_coords(swid);

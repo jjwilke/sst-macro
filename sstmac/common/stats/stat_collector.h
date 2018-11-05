@@ -107,6 +107,8 @@ class stat_collector : public sprockit::printable
 
   virtual void clear() = 0;
 
+  virtual void finalize(timestamp t){}
+
   bool registered() const {
     return registered_;
   }
@@ -129,6 +131,10 @@ class stat_collector : public sprockit::printable
 
   stat_collector* clone() const {
     return do_clone(params_);
+  }
+
+  virtual bool is_main() const {
+    return false;
   }
 
   static int allocate_unique_tag(){
@@ -192,6 +198,10 @@ class stat_collector : public sprockit::printable
              std::ios::openmode flags = std::ios::out);
 
   virtual stat_collector* do_clone(sprockit::sim_parameters* params) const = 0;
+
+  virtual bool require_filroote() const {
+    return true;
+  }
 
  protected:
   int id_;

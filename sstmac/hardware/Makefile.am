@@ -14,10 +14,37 @@ include $(top_srcdir)/Makefile.common
 noinst_LTLIBRARIES = libsstmac_hw.la
 
 libsstmac_hw_la_LDFLAGS = 
+libsstmac_hw_la_LIBADD = 
 
 library_includedir=$(includedir)/sstmac/hardware
 
-nobase_library_include_HEADERS = \
+libsstmac_hw_la_SOURCES = 
+nobase_library_include_HEADERS = 
+
+if HAVE_VTK
+libsstmac_hw_la_SOURCES +=  \
+  vtk/vtk_stats.cc \
+  vtk/vtkTrafficSource.cc
+
+nobase_library_include_HEADERS += \
+  vtk/vtk_stats.h \
+  vtk/vtkTrafficSource.h
+
+if INTEGRATED_SST_CORE
+libsstmac_hw_la_SOURCES += \
+   vtk/statoutputexodus.cc
+
+nobase_library_include_HEADERS += \
+   vtk/stattraffic.h \
+   vtk/statoutputexodus.h
+endif
+
+libsstmac_hw_la_LDFLAGS += $(VTK_LDFLAGS)
+libsstmac_hw_la_LIBADD += $(VTK_LIBS)
+AM_CPPFLAGS += $(VTK_CPPFLAGS)
+endif
+
+nobase_library_include_HEADERS += \
   logp/logp_nic.h \
   logp/logp_switch.h \
   logp/logp_switch_fwd.h \
@@ -32,8 +59,6 @@ nobase_library_include_HEADERS = \
   memory/memory_model_fwd.h \
   nic/nic_fwd.h \
   nic/nic.h \
-  nic/netlink.h \
-  nic/netlink_fwd.h \
   noise/noise.h \
   node/node.h \
   node/node_fwd.h \
@@ -73,15 +98,12 @@ nobase_library_include_HEADERS = \
   interconnect/interconnect_fwd.h \
   switch/network_switch.h \
   switch/network_switch_fwd.h \
-  topology/butterfly.h \
   topology/fully_connected.h \
   topology/cascade.h \
   topology/dragonfly.h \
   topology/dragonfly_plus.h \
   topology/fat_tree.h \
   topology/torus.h \
-  topology/multipath_topology.h \
-  topology/tiled_torus.h \
   topology/hypercube.h \
   topology/topology.h \
   topology/topology_fwd.h \
@@ -90,19 +112,12 @@ nobase_library_include_HEADERS = \
   topology/cartesian_topology.h \
   topology/star.h \
   topology/structured_topology.h \
-  topology/tiled_cascade.h \
   topology/traffic/traffic.h \
   router/router.h \
   router/router_fwd.h \
-  router/routing_enum.h \
-  router/minimal_routing.h \
-  router/multipath_routing.h \
-  router/ugal_routing.h \
-  router/par_routing.h \
-  router/valiant_routing.h \
   router/fat_tree_router.h 
 
-libsstmac_hw_la_SOURCES =  \
+libsstmac_hw_la_SOURCES +=  \
   logp/logp_nic.cc \
   logp/logp_switch.cc \
   logp/logp_param_expander.cc \
@@ -116,7 +131,6 @@ libsstmac_hw_la_SOURCES =  \
   common/param_expander.cc \
   common/recv_cq.cc \
   memory/memory_model.cc \
-  nic/netlink.cc \
   nic/nic.cc \
   noise/noise.cc \
   node/node.cc \
@@ -141,25 +155,24 @@ libsstmac_hw_la_SOURCES =  \
   network/network_message.cc \
   interconnect/interconnect.cc \
   switch/network_switch.cc \
-  topology/butterfly.cc \
   topology/fully_connected.cc \
   topology/cascade.cc \
   topology/dragonfly.cc \
   topology/dragonfly_plus.cc \
   topology/fat_tree.cc \
   topology/torus.cc \
-  topology/tiled_torus.cc \
   topology/hypercube.cc \
   topology/coordinates.cc \
-  topology/tiled_cascade.cc \
   topology/traffic/traffic.cc \
   router/router.cc \
-  router/dragonfly_minimal.cc \
   router/fat_tree_router.cc \
-  router/minimal_routing.cc \
-  router/ugal_routing.cc \
-  router/par_routing.cc \
-  router/valiant_routing.cc \
+  router/cascade_routing.cc \
+  router/dragonfly_routing.cc \
+  router/dragonfly_routing.cc \
+  router/dragonfly_plus_routing.cc \
+  router/hypercube_routing.cc \
+  router/cascade_routing.cc \
+  router/torus_routing.cc \
   topology/star.cc \
   topology/structured_topology.cc \
   topology/cartesian_topology.cc \

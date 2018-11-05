@@ -69,6 +69,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sprockit/util.h>
 #include <sprockit/sim_parameters.h>
 #include <sstmac/software/api/api.h>
+#include <sstmac/main/sstmac.h>
 
 static sprockit::need_delete_statics<sstmac::sw::user_app_cxx_full_main> del_app_statics;
 
@@ -78,9 +79,12 @@ RegisterKeywords(
  { "notify", "whether the app should send completion notifications to job root" },
  { "globals_size", "the size of the global variable segment to allocate" },
  { "OMP_NUM_THREADS", "environment variable for configuring openmp" },
+ { "exe", "an optional exe .so file to load for this app" },
 );
 
 MakeDebugSlot(app_compute);
+
+void sstmac_app_loaded(int aid){}
 
 namespace sstmac {
 namespace sw {
@@ -90,6 +94,8 @@ std::map<std::string, app::main_fxn>*
 std::map<std::string, app::empty_main_fxn>*
   user_app_cxx_empty_main::empty_main_fxns_ = nullptr;
 std::map<app_id, user_app_cxx_full_main::argv_entry> user_app_cxx_full_main::argv_map_;
+
+std::map<int, app::dlopen_entry> app::dlopens_;
 
 int
 app::allocate_tls_key(destructor_fxn fxn)
@@ -119,6 +125,55 @@ static char* get_data_segment(sprockit::sim_parameters* params,
   }
 }
 
+
+static thread_lock dlopen_lock;
+
+void
+app::check_dlopen(int aid, sprockit::sim_parameters* params)
+{
+  if (params->has_param("exe")){
+    dlopen_lock.lock();
+    std::string libname = params->get_param("exe");
+    dlopen_entry& entry = dlopens_[aid];
+    entry.name = libname;
+    if (entry.refcount == 0){
+      entry.handle = load_extern_library(libname, load_extern_path_str());
+    }
+    void* name = dlsym(entry.handle, "exe_main_name");
+    if (name){
+      const char* str_name = (const char*) name;
+      if (params->has_param("name")){
+        if (params->get_param("name") != std::string(str_name)){
+          spkt_abort_printf("if given both exe= and name= parameters for app%d, they must agree\n"
+                            "%s != %s", aid, str_name, params->get_param("name").c_str());
+        }
+      } else {
+        params->add_param("name", str_name);
+      }
+    }
+    ++entry.refcount;
+    sstmac_app_loaded(aid);
+    dlopen_lock.unlock();
+  }
+}
+
+void
+app::check_dlclose()
+{
+  dlopen_lock.lock();
+  auto iter = dlopens_.find(aid());
+  if (iter != dlopens_.end()){
+    dlopen_entry& entry = iter->second;
+    --entry.refcount;
+    if (entry.refcount == 0){
+      std::cerr << "Unloading library " << entry.name << std::endl;
+      unload_extern_library(entry.handle);
+      dlopens_.erase(iter);
+    }
+  }
+  dlopen_lock.unlock();
+}
+
 char*
 app::allocate_data_segment(bool tls)
 {
@@ -136,10 +191,10 @@ app::app(sprockit::sim_parameters *params, software_id sid,
   params_(params),
   next_tls_key_(0),
   next_condition_(0),
+  notify_(true),
   next_mutex_(0),
   min_op_cutoff_(0),
   globals_storage_(nullptr),
-  omp_num_threads_(1),
   rc_(0)
 {
   globals_storage_ = allocate_data_segment(false); //not tls
@@ -149,12 +204,27 @@ app::app(sprockit::sim_parameters *params, software_id sid,
     host_timer_ = new HostTimer;
   }
 
-
-
   notify_ = params->get_optional_bool_param("notify", true);
 
   sprockit::sim_parameters* env_params = params->get_optional_namespace("env");
-  omp_num_threads_ = env_params->get_optional_int_param("OMP_NUM_THREADS", 1);
+  omp_contexts_.emplace_back();
+  omp_context& active = omp_contexts_.back();
+  active.max_num_subthreads = active.requested_num_subthreads =
+    env_params->get_optional_int_param("OMP_NUM_THREADS", 1);
+  active.level = 0;
+  active.num_threads = 1;
+
+  for (auto iter=env_params->begin(); iter != env_params->end(); ++iter){
+    env_[iter->first] = iter->second.value;
+  }
+
+  for (auto iter=os->env_begin(); iter != os->env_end(); ++iter){
+    auto my_iter = env_.find(iter->first);
+    if (my_iter == env_.end()){
+      //don't overwrite - app env taks precedence
+      env_[iter->first] = iter->second;
+    }
+  }
 }
 
 app::~app()
@@ -165,6 +235,47 @@ app::~app()
   if (globals_storage_) delete[] globals_storage_;
   //we own a unique copy
   if (params_) delete params_;
+}
+
+int
+app::putenv(char* input)
+{
+  spkt_abort_printf("app::putenv: not implemented - cannot put %d",
+                    input);
+  return 0;
+}
+
+int
+app::setenv(const std::string &name, const std::string &value, int overwrite)
+{
+  if (overwrite){
+    env_[name] = value;
+  } else {
+    auto iter = env_.find(name);
+    if (iter == env_.end()){
+      env_[name] = value;
+    }
+  }
+  return 0;
+}
+
+char*
+app::getenv(const std::string &name) const
+{
+  char* my_buf = const_cast<char*>(env_string_);
+  auto iter = env_.find(name);
+  if (iter == env_.end()){
+    return nullptr;
+  } else {
+    auto& val = iter->second;
+    if (val.size() >= sizeof(env_string_)){
+      spkt_abort_printf("Environment variable %s=%s is too long - need less than %d",
+                        name.c_str(), val.c_str(), int(val.size()));
+    }
+    ::strcpy(my_buf, val.data());
+  }
+  //ugly but necessary
+  return my_buf;
 }
 
 lib_compute_memmove*
@@ -238,9 +349,7 @@ app::compute_detailed(uint64_t flops, uint64_t nintops, uint64_t bytes, int nthr
                "Rank %d for app %d: detailed compute for flops=%" PRIu64 " intops=%" PRIu64 " bytes=%" PRIu64,
                sid_.task_, sid_.app_, flops, nintops, bytes);
 
-  compute_lib()->compute_detailed(flops, nintops, bytes,
-                                  //if no number of threads are given, use the default OpenMP cfg
-                                  nthread == use_omp_num_threads ? omp_num_threads_ : nthread);
+  compute_lib()->compute_detailed(flops, nintops, bytes, nthread);
 }
 
 void
@@ -307,6 +416,7 @@ app::run()
   }
   task_mapping::remove_global_mapping(sid_.app_, unique_name_);
   thread_info::deregister_user_space_virtual_thread(stack_);
+  check_dlclose();
 }
 
 void

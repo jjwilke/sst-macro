@@ -94,9 +94,11 @@ parse_opts(int argc, char **argv, opts &oo)
   int print_params = 0;
   int debugflags = 0;
   int dodumpi = 0;
+  int dootf2 = 0;
   int lowrestimer = 0;
   int run_ping_all = 0;
   int infinite_network = 0;
+  int output_xyz = 0;
   bool need_config_file = true;
   bool machine_configured = false;
   option gopt[] = {
@@ -113,6 +115,8 @@ parse_opts(int argc, char **argv, opts &oo)
     { "param", required_argument, NULL, 'p' },
     { "srun", required_argument, NULL, 's' },
     { "dumpi", no_argument, &dodumpi, 1 },
+    { "otf2", no_argument, &dootf2, 1 },
+    { "exe", required_argument, NULL, 'e' },
     { "debug-flags", no_argument, &debugflags, 1},
     { "mpitest", no_argument, &dompitest, 1 },
     { "print-nodes", no_argument, &printnodes, 1 },
@@ -125,6 +129,7 @@ parse_opts(int argc, char **argv, opts &oo)
     { "no-wall-time", no_argument, &no_wall_time, 1 },
     { "cpu-affinity", required_argument, NULL, 'c' },
     { "graph", required_argument, NULL, 'g' },
+    { "xyz", required_argument, NULL, 'x' },
     { "dump-params", required_argument, NULL, 'D'},
     { NULL, 0, NULL, '\0' }
   };
@@ -133,11 +138,14 @@ parse_opts(int argc, char **argv, opts &oo)
   std::list<std::pair<std::string, std::string> > paramlist;
   oo.params = new sprockit::sim_parameters;
   optind = 1;
-  while ((ch = getopt_long(argc, argv, "Phad:f:t:p:m:n:u:i:c:b:V:g:D:", gopt, NULL))
+  while ((ch = getopt_long(argc, argv, "Phad:f:t:p:m:n:u:i:c:b:V:g:D:o:e:", gopt, NULL))
          != -1) {
     switch (ch) {
       case 0:
         //this set an input flag
+        break;
+      case 'e':
+        sstmac::load_extern_library(optarg, "");
         break;
       case 'h':
         oo.help = 1;
@@ -167,6 +175,9 @@ parse_opts(int argc, char **argv, opts &oo)
       case 'f':
         oo.configfile = optarg;
         oo.got_config_file = true;
+        break;
+      case 'x':
+        oo.output_xyz = optarg;
         break;
       case 'a': {
         need_config_file = false;
@@ -205,6 +216,11 @@ parse_opts(int argc, char **argv, opts &oo)
     }
   }
 
+  if (debugflags){
+    sprockit::debug::print_all_debug_slots(std::cout);
+    return PARSE_OPT_EXIT_SUCCESS;
+  }
+
   if (infinite_network) {
     sprockit::sim_parameters params("infinite.ini");
     params.combine_into(oo.params);
@@ -215,7 +231,7 @@ parse_opts(int argc, char **argv, opts &oo)
     machine_configured = true;
   }
 
-  if (dodumpi) {
+  if (dodumpi || dootf2) {
     if (!machine_configured){
       sprockit::sim_parameters params("debug.ini");
       //do not overwrite existing parameters
@@ -223,7 +239,11 @@ parse_opts(int argc, char **argv, opts &oo)
       machine_configured = true;
     }
     need_config_file = false;
-    oo.params->add_param("node.app1.name", "parsedumpi");
+    if (dodumpi){
+      oo.params->add_param("node.app1.name", "parsedumpi");
+    } else if (dootf2) {
+      oo.params->add_param("node.app1.name", "parseotf2");
+    }
   }
 
   if (oo.configfile == "" && need_config_file){
@@ -277,10 +297,6 @@ parse_opts(int argc, char **argv, opts &oo)
     oo.params->add_param("node.app1.name", "mpi_ping_all");
   }
 
-  if (debugflags){
-    sprockit::debug::print_all_debug_slots(std::cout);
-    return PARSE_OPT_EXIT_SUCCESS;
-  }
   /** check to see if we should do an mpitestall */
   if (dompitest) {
     if (oo.configfile != "") {
