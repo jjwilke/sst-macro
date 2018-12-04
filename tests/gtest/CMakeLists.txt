@@ -30,7 +30,7 @@ function(add_check_test config)
 add_test(NAME ${config} COMMAND ${SSTMAC_EXE} --help)
 endfunction(add_check_test)
 
-add_sstmac_test(routing routing.cc)
+add_sstmac_test(routing test/routing.cc)
 add_check_test(hello)
 
 
