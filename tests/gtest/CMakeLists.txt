@@ -2,6 +2,8 @@ cmake_minimum_required (VERSION 3.9)
 
 project (SSTMacroUnitTests)
 
+set (CMAKE_CXX_STANDARD 11)
+
 set(SSTMAC_DIR "" CACHE PATH "The path to SST/macro installation")
 
 find_path(SSTMAC_INC sstmac/sstmacro.h PATHS ${SSTMAC_DIR}/include)
