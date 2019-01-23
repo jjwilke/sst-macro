@@ -5,7 +5,6 @@ project (SSTMacroUnitTests)
 set (CMAKE_CXX_STANDARD 11)
 
 set(SSTMAC_DIR "" CACHE PATH "The path to SST/macro installation")
-
 find_path(SSTMAC_INC sstmac/sstmacro.h PATHS ${SSTMAC_DIR}/include)
 find_library(SSTMAC_LIB sstmac ${SSTMAC_DIR}/lib)
 find_library(SPKT_LIB sprockit ${SSTMAC_DIR}/lib)
@@ -28,11 +27,14 @@ target_link_libraries(${exec} GTest::GTest)
 add_test(NAME ${exec} COMMAND ${exec} -f test.ini)
 endfunction(add_sstmac_test)
 
-function(add_check_test config)
-add_test(NAME ${config} COMMAND ${SSTMAC_EXE} --help)
+function(add_check_test test_name tout args)
+    add_test(NAME ${test_name} COMMAND sh -c "${SSTMAC_EXE} ${args} > ${test_name}.chk" TIMEOUT ${tout})
+    add_test(NAME ${test_name}_compare COMMAND ${CMAKE_COMMAND} -E compare_files ${CMAKE_BINARY_DIR}/${test_name}.chk ${CMAKE_SOURCE_DIR}/../reference/${test_name}.ref-out)
 endfunction(add_check_test)
 
 add_sstmac_test(routing test/routing.cc)
-add_check_test(hello)
+add_check_test(test_core_apps_ping_all_dragonfly_ugal 20  "-f ${CMAKE_SOURCE_DIR}/../test_configs/test_ping_all_dragonfly_ugal.ini --no-wall-time")
+add_check_test(test_core_apps_ping_all_dragonfly_minimal 20  "-f ${CMAKE_SOURCE_DIR}/../test_configs/test_ping_all_dragonfly_minimal.ini --no-wall-time")
+add_check_test(test_core_apps_ping_all_dragonfly_par_single 20  "-f ${CMAKE_SOURCE_DIR}/../test_configs/test_ping_all_dragonfly_par_single.ini --no-wall-time")
 
 
