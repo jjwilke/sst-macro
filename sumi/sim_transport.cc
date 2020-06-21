@@ -234,7 +234,9 @@ SimTransport::SimTransport(SST::Params& params, sstmac::sw::App* parent, SST::Co
   parent_app_(parent),
   default_progress_queue_(parent->os()),
   nic_ioctl_(parent->os()->nicDataIoctl()),
-  qos_analysis_(nullptr)
+  qos_analysis_(nullptr),
+  pragma_block_set_(false),
+  pragma_timeout_(-1)
 {
   completion_queues_[0] = std::bind(&DefaultProgressQueue::incoming,
                                     &default_progress_queue_, 0, std::placeholders::_1);
@@ -498,10 +500,6 @@ SimTransport::incomingMessage(Message *msg)
       held_[cq].push_back(msg);
     } else {
       debug_printf(sprockit::dbg::sumi, "CQ %d handle %s", cq, msg->toString().c_str());
-      if (msg->postedRecvQueue() != Message::no_queue){
-        //find a posted recv for this
-        matchPostedRecv(msg);
-      }
       completion_queues_[cq](msg);
     }
   } else {
@@ -1112,6 +1110,12 @@ class PatternQoSAnalysis : public QoSAnalysis
   sstmac::TimeDelta allowedDelay_;
 };
 
+extern "C" void sstmac_blocking_call(int condition, double timeout, const char* api_name)
+{
+  sstmac::sw::Thread* t = sstmac::sw::OperatingSystem::currentThread(); 
+  auto* api = t->getApi<sumi::SimTransport>(api_name);
+  api->setPragmaBlocking(condition, timeout);
+}
 
 
 }

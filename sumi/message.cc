@@ -49,7 +49,6 @@ namespace sumi {
 
 const int Message::ack_size = 16;
 const int Message::header_size = 64;
-const int Message::no_queue;
 
 Message::~Message()
 {
@@ -58,8 +57,9 @@ Message::~Message()
 std::string
 Message::toString() const
 {
-  return sprockit::sprintf("message %s %d->%d",
-            tostr(class_), sender_, recver_);
+  return sprockit::sprintf("message %s %d->%d: %s",
+            tostr(class_), sender_, recver_,
+            sstmac::hw::NetworkMessage::typeStr());
 }
 
 #define enumcase(x) case x: return #x
