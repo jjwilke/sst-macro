@@ -111,6 +111,19 @@ sys_get_switch_connections(SystemPy_t* self, PyObject* idx);
 static PyObject*
 sys_get_ejection_connections(SystemPy_t* self, PyObject* idx);
 
+/**
+ * @brief sys_get_switch_geometry
+ * @param self
+ * @param idx
+ * @return A 2-tuple with first element the switch geometry and second element
+ *         a list of port geometries.  The swtich geometry is a 2-tuple
+ *         with first element the origin and second element the size.
+ *         The origin and size are given as a 3-tuple of x,y,z.
+ *         The port geometry is the location of the port (just an origin).
+ */
+static PyObject*
+sys_get_switch_geometry(SystemPy_t* self, PyObject* idx);
+
 static PyObject*
 sys_nodeToLogpSwitch(SystemPy_t* self, PyObject* idx);
 
@@ -123,6 +136,9 @@ sys_init(SystemPy_t* self, PyObject* args, PyObject* kwargs);
 static PyMethodDef system_methods[] = {
   { "nodeToLogPSwitch",
     (PyCFunction)sys_nodeToLogpSwitch, METH_O,
+      "map a node id to its corresponding LogP switch" },
+  { "switchGeometry",
+    (PyCFunction)sys_get_switch_geometry, METH_O,
       "map a node id to its corresponding LogP switch" },
   { "isLogP",
     (PyCFunction)sys_is_logp, METH_NOARGS,
@@ -244,6 +260,23 @@ sys_convert_to_list(const std::vector<sstmac::hw::Topology::InjectionPort>& port
     PyTuple_SetItem(tuple, i, portTuple);
   }
   return tuple;
+}
+
+static PyObject*
+sys_get_switch_geometry(SystemPy_t *self, PyObject *idx)
+{
+  SwitchId sid = (SwitchId) ConvertToCppLong(swIdx);
+  sstmac::hw::Topology::SwitchGeometry geom = self->macro_topology->getGeometry(sid);
+
+  sstmac::hw::Topology::xyz origin = geom.box.origin();
+  sstmac::hw::Topology::xyz extent = geom.box.extent();
+  //TODO - add this to Python return value
+
+  for (int p=0; p < geom.ports.size(); ++p){
+    sstmac::hw::Topology::xyz port_xyz = geom.get_port_geometry(p).origin();
+    //TODO - add this to Python return value
+  }
+
 }
 
 static PyObject*

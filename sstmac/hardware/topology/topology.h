@@ -237,24 +237,6 @@ class Topology : public sprockit::printable
                               corner.z + size.z * z_start, rot);
     }
 
-    xyz plus_x_corner() const {
-      xyz loc = corner;
-      loc.x += size.x;
-      return loc;
-    }
-
-    xyz plus_y_corner() const {
-      xyz loc = corner;
-      loc.y += size.y;
-      return loc;
-    }
-
-    xyz plus_z_corner() const {
-      xyz loc = corner;
-      loc.z += size.z;
-      return loc;
-    }
-
     xyz center() const {
       double newX = (corner.x + size.x*0.5);
       double newY = (corner.y + size.y*0.5);
@@ -262,12 +244,16 @@ class Topology : public sprockit::printable
       return xyz(newX, newY, newZ).rotate(rot);
     }
 
-    xyz x_anchor() const {
+    xyz origin() const {
       //return the center of the front face
       double newX = corner.x;
-      double newY = corner.y + size.y*0.5;
-      double newZ = corner.z + size.y*0.5;
-      return xyz(newX, newY, newZ).rotate(rot);
+      double newY = corner.y;
+      double newZ = corner.z;
+      return corner.rotate(rot);
+    }
+
+    xyz extent() const {
+      return size.rotate(rot);
     }
 
   };
