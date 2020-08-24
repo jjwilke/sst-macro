@@ -100,7 +100,7 @@ class Hypercube :
     return minimalDistance(src/concentration_, dst/concentration_);
   }
 
-  VTKSwitchGeometry getVtkGeometry(SwitchId sid) const override;
+  SwitchGeometry getGeometry(SwitchId sid) const override;
 
  protected:
   int radix_;

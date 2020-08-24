@@ -170,9 +170,6 @@ SnapprSwitch::SnapprSwitch(uint32_t id, SST::Params& params) :
   // Ensure topology is set
   Topology::staticTopology(params);
 
-  //vtk_ = registerStatistic<uint64_t,int,double,int>("traffic_intensity", getName());
-  //if (vtk_) vtk_->configure(my_addr_, top_);
-
   TimeDelta byte_delay(1.0/link_bw_);
   std::string sw_arbtype = params.find<std::string>("arbitrator", "fifo");
   std::string link_arbtype = link_params.find<std::string>("arbitrator", sw_arbtype);

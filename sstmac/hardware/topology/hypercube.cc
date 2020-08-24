@@ -188,8 +188,8 @@ Hypercube::connectedOutports(SwitchId src, std::vector<Connection>& conns) const
   }
 }
 
-Topology::VTKSwitchGeometry
-Hypercube::getVtkGeometry(SwitchId sid) const
+Topology::SwitchGeometry
+Hypercube::getGeometry(SwitchId sid) const
 {
   coordinates coords = switchCoords(sid);
   int ndims = dimensions_.size();
@@ -214,9 +214,7 @@ Hypercube::getVtkGeometry(SwitchId sid) const
     num_ports += dimensions_[d];
   }
 
-  //vtk_face_t dim_to_face[] = { plusXface, plusYface, plusZface };
-
-  std::vector<VTKSwitchGeometry::port_geometry> ports(num_ports);
+  std::vector<SwitchGeometry::port_geometry> ports(num_ports);
   /**
   for (int d=0; d < ndims; ++d){
     int port_offset = dim_to_outport_[d];
@@ -226,7 +224,7 @@ Hypercube::getVtkGeometry(SwitchId sid) const
   }
   */
 
-  VTKSwitchGeometry geom(xSize,ySize,zSize,xCorner,yCorner,zCorner,theta,
+  SwitchGeometry geom(xSize,ySize,zSize,xCorner,yCorner,zCorner,theta,
                            std::move(ports));
 
   return geom;

@@ -162,7 +162,7 @@ class FatTree :
     return -1;
   }
 
-  bool isCurvedVtkLink(SwitchId  /*sid*/, int  /*port*/) const override {
+  bool isCurvedLink(SwitchId  /*sid*/, int  /*port*/) const override {
     return false;
   }
 
@@ -194,7 +194,7 @@ class FatTree :
     return up_ports_per_leaf_switch_;
   }
 
-  VTKSwitchGeometry getVtkGeometry(SwitchId sid) const override;
+  SwitchGeometry getGeometry(SwitchId sid) const override;
 
   void connectedOutports(SwitchId src, std::vector<Connection>& conns) const override;
 
@@ -247,8 +247,8 @@ class FatTree :
   int agg_switches_per_subtree_;
   int num_agg_switches_;
   int num_core_switches_;
-  double vtk_radius_;
-  double vtk_subtree_theta_;
+  double geom_radius_;
+  double geom_subtree_theta_;
 
   void checkInput() const;
 };

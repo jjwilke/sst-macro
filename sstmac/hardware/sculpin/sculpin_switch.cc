@@ -71,7 +71,6 @@ RegisterKeywords(
 { "filter_stat_destination", "list of specific destination nodes to collect statistis for" },
 { "highlight_stat_source", "list of specific source nodes to highlight traffic from" },
 { "highlight_scale", "the scale factor to use for highlighting" },
-{ "vtk_flicker", "whether to 'flicker' when packets leave/arrive" },
 );
 
 
@@ -93,16 +92,12 @@ SculpinSwitch::SculpinSwitch(uint32_t id, SST::Params& params) :
    "macro", rtr_params.find<std::string>("name"), rtr_params, top_, this);
 
   congestion_ = params.find<bool>("congestion", true);
-  vtk_flicker_ = params.find<bool>("vtk_flicker", true);
 
   SST::Params link_params = params.find_scoped_params("link");
   link_bw_ = link_params.find<SST::UnitAlgebra>("bandwidth").getValue().toDouble();
 
   // Ensure topology is set
   Topology::staticTopology(params);
-
-  //vtk_ = registerStatistic<uint64_t,int,double,int>("traffic_intensity", getName());
-  //if (vtk_) vtk_->configure(my_addr_, top_);
 
   ports_.resize(top_->maxNumPorts());
   for (int i=0; i < ports_.size(); ++i){
@@ -132,7 +127,6 @@ SculpinSwitch::SculpinSwitch(uint32_t id, SST::Params& params) :
   }
 
   highlight_scale_ = params.find<double>("highlight_scale", 1000.);
-  vtk_flicker_ = params.find<bool>("vtk_flicker", true);
 
 }
 
@@ -185,30 +179,6 @@ SculpinSwitch::send(Port& p, SculpinPacket* pkt, Timestamp now)
   p.next_free += time_to_send;
   pkt->setTimeToSend(time_to_send);
   p.link->send(extra_delay, pkt);
-
-#if SSTMAC_VTK_ENABLED
-#if SSTMAC_INTEGRATED_SST_CORE
-  traffic_event evt;
-  evt.time_=p.next_free.ticks();
-  evt.id_=my_addr_;
-  evt.p_=p.id;
-  evt.type_=1;
-  traffic_intensity[p.id]->addData(evt);
-#else
-  if (vtk_){
-    double scale = do_not_filter_packet(pkt);
-    if (scale > 0){
-      double color = delay.msec() * scale;
-      vtk_->collect_new_color(now, p.id, color);
-      if (vtk_flicker_ || p.priority_queue.empty()){
-        static const timestamp flicker_diff(1e-9);
-        timestamp flicker_time = p.next_free - flicker_diff;
-        vtk_->collect_new_color(flicker_time, p.id, 0);
-      }
-    }
-  }
-#endif
-#endif
 
   pkt_debug("packet leaving port %d at t=%8.4e: %s",
             p.id, p.next_free.sec(), pkt->toString().c_str());

@@ -96,6 +96,7 @@ SnapprOutPort::SnapprOutPort(uint32_t id, SST::Params& params, const std::string
   queue_depth_ftq = dynamic_cast<FTQCalendar*>(
         parent->registerMultiStatistic<int,uint64_t,uint64_t>(params, "queue_depth", subId));
 #endif
+  intensity = registerStatistic<int>(params, "intensity", subId);
   ftq_idle_state = FTQTag::allocateCategoryId("idle:" + portName);
   ftq_active_state = FTQTag::allocateCategoryId("active:" + portName);
   ftq_stalled_state = FTQTag::allocateCategoryId("stalled:" + portName);
@@ -240,7 +241,7 @@ SnapprOutPort::scheduleArbitration()
 }
 
 void
-SnapprOutPort::deadlockCheck(SSTMAC_MAYBE_UNUSED int vl)
+SnapprOutPort::deadlockCheck(int vl)
 {
 #if !SSTMAC_INTEGRATED_SST_CORE
   auto iter = deadlocked_vls_.find(vl);
@@ -295,12 +296,14 @@ SnapprOutPort::arbitrate()
 
   arbitration_scheduled = false;
   if (ready()){
+    intensity->addData(queueLength());
     logQueueDepth();
     pkt_debug("arbitrating packet from port %d with %d queued",
               number_, queueLength());
     SnapprPacket* pkt = popReady();
     send(pkt, parent_->now());
   } else {
+    intensity->addData(intensity_stalled);
     if (stall_start.empty()){
       stall_start = parent_->now();
     }

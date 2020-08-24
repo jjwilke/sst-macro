@@ -329,7 +329,6 @@ The following are dependencies for SST-macro.
 -   Libtool: 2.4 or later
 -   A C/C++ compiler is required with C++11 support.  gcc >=4.8.5 and clang >= 3.7 are known to work.
 -   (optional) OTF2: 2.0 or later for OTF2 trace replay.
--   (optional) VTK 8.1 or later for creating Exodus files for traffic visualization
 -   (optional) Paraview 5.0 or greater for visualizing Exodus files
 -   (optional) Doxygen and Graphviz are needed to build the source code documentation.
 -   (optional) KCacheGrind or QCacheGrind to display call graphs
@@ -647,9 +646,6 @@ OTF2 is a general purpose trace format with specialized callbacks for the MPI AP
 ````
 where the OTF2 root is the installation prefix for a valid OTF2 build. OTF2 can be obtained from the Score-P project at {http://www.vi-hps.org/projects/score-p}.
 Detailed build and usage instructions can be found on the website.
-
-
-
 
 ### Section 2.5: Running an Application<a name="sec_building_running"></a>
 

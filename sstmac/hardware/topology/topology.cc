@@ -192,7 +192,7 @@ Topology::outputGraphviz(const std::string& path)
 
 void
 Topology::outputBox(std::ostream& os,
-                     const Topology::VTKBoxGeometry& box)
+                     const Topology::BoxGeometry& box)
 {
   os << box.vertex(0);
   for (int i=1; i < 8; ++i){
@@ -202,7 +202,7 @@ Topology::outputBox(std::ostream& os,
 
 void
 Topology::outputBox(std::ostream& os,
-                     const Topology::VTKBoxGeometry& box,
+                     const Topology::BoxGeometry& box,
                      const std::string& color,
                      const std::string& alpha)
 {
@@ -222,7 +222,7 @@ Topology::outputXYZ(const std::string& path)
   std::ofstream out(output);
 
   for (int sid=0; sid < nsw; ++sid){
-    VTKSwitchGeometry geom = getVtkGeometry(sid);
+    SwitchGeometry geom = getGeometry(sid);
     outputBox(out, geom.box, "gray", "0.1"); //very transparent
     out << "\n";
   }
@@ -273,12 +273,12 @@ Topology::label(uint32_t comp_id) const
   }
 }
 
-Topology::VTKSwitchGeometry
-Topology::getVtkGeometry(SwitchId  /*sid*/) const
+Topology::SwitchGeometry
+Topology::getGeometry(SwitchId  /*sid*/) const
 {
-  spkt_abort_printf("unimplemented: topology::getVtkGeometry for %s",
+  spkt_abort_printf("unimplemented: topology::getGeometry for %s",
                     toString().c_str());
-  return VTKSwitchGeometry(0,0,0,0,0,0,0,std::vector<VTKSwitchGeometry::port_geometry>());
+  return SwitchGeometry(0,0,0,0,0,0,0,std::vector<SwitchGeometry::port_geometry>());
 }
 
 std::string

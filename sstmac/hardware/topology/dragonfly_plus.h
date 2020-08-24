@@ -124,7 +124,7 @@ class DragonflyPlus : public Dragonfly
 
   std::string portTypeName(SwitchId sid, int port) const override;
 
-  VTKSwitchGeometry getVtkGeometry(SwitchId sid) const override;
+  SwitchGeometry getGeometry(SwitchId sid) const override;
 
   int ndimensions() const {
     return 3;
@@ -173,7 +173,7 @@ class DragonflyPlus : public Dragonfly
     return num_leaf_switches_;
   }
 
-  bool isCurvedVtkLink(SwitchId  /*sid*/, int  /*port*/) const override {
+  bool isCurvedLink(SwitchId  /*sid*/, int  /*port*/) const override {
     return false;
   }
 
@@ -201,7 +201,7 @@ class DragonflyPlus : public Dragonfly
 
  private:
   int num_leaf_switches_;
-  double vtk_row_spacing_;
+  double geom_row_spacing_;
 };
 
 }

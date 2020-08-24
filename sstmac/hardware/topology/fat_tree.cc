@@ -91,8 +91,8 @@ FatTree::FatTree(SST::Params& params) :
 
   static const double TWO_PI = 6.283185307179586;
   double circumference_needed = box_stride * 1.1 * num_leaf_switches_; //1.6 factor for spacing, extra room
-  vtk_radius_ = circumference_needed / TWO_PI;
-  vtk_subtree_theta_ = TWO_PI / num_agg_subtrees_;
+  geom_radius_ = circumference_needed / TWO_PI;
+  geom_subtree_theta_ = TWO_PI / num_agg_subtrees_;
 
   up_ports_per_leaf_switch_ =
       params.find<int>("up_ports_per_leaf_switch");
@@ -116,14 +116,14 @@ FatTree::FatTree(SST::Params& params) :
   }
 }
 
-Topology::VTKSwitchGeometry
-FatTree::getVtkGeometry(SwitchId  /*sid*/) const
+Topology::SwitchGeometry
+FatTree::getGeometry(SwitchId  /*sid*/) const
 {
   int row = 0;
   int slot = 0;
   int subtree = 0;
   double midpoint = 0;
-  std::vector<VTKSwitchGeometry::port_geometry> ports;
+  std::vector<SwitchGeometry::port_geometry> ports;
   /**
   int core_row_cutoff = num_leaf_switches_ + num_agg_switches_;
   int agg_row_cutoff = num_leaf_switches_;
@@ -182,11 +182,11 @@ FatTree::getVtkGeometry(SwitchId  /*sid*/) const
     ySize = box_size * 2;
   } else {
     xCorner = midpoint_delta * box_stride;
-    yCorner = vtk_radius_ + box_size*row_gap*(1-row); //agg switches point into circle
-    theta = subtree * vtk_subtree_theta_;
+    yCorner = geom_radius_ + box_size*row_gap*(1-row); //agg switches point into circle
+    theta = subtree * geom_subtree_theta_;
   }
 
-  VTKSwitchGeometry geom(xSize, ySize, zSize,
+  SwitchGeometry geom(xSize, ySize, zSize,
                            xCorner, yCorner, zCorner, theta,
                            std::move(ports));
 

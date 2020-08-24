@@ -213,8 +213,8 @@ Torus::switchAddr(const coordinates& coords) const
 }
 
 
-Topology::VTKSwitchGeometry
-Torus::getVtkGeometry(SwitchId sid) const
+Topology::SwitchGeometry
+Torus::getGeometry(SwitchId sid) const
 {
   coordinates coords = switchCoords(sid);
   int ndims = dimensions_.size();
@@ -234,7 +234,7 @@ Torus::getVtkGeometry(SwitchId sid) const
   double zSize = 1.0;
   double theta = 0.0;
 
-  std::vector<VTKSwitchGeometry::port_geometry> ports(6);
+  std::vector<SwitchGeometry::port_geometry> ports(6);
   /**
   faces[convertToPort(0,0)] = plusXface;
   faces[convertToPort(0,1)] = minusXface;
@@ -244,7 +244,7 @@ Torus::getVtkGeometry(SwitchId sid) const
   faces[convertToPort(2,1)] = minusZface;
   */
 
-  VTKSwitchGeometry geom(xSize,ySize,zSize,xCorner,yCorner,zCorner,theta,
+  SwitchGeometry geom(xSize,ySize,zSize,xCorner,yCorner,zCorner,theta,
                            std::move(ports));
 
   return geom;

@@ -184,8 +184,6 @@ CHECK_REPO_BUILD([sstmac])
 
 CHECK_OTF2()
 
-CHECK_VTK()
-
 CHECK_THREAD_PARALLEL()
 
 #CHECK_FORTRAN()
@@ -316,11 +314,6 @@ echo "OTF2 Replay        $build_otf2"
 echo "MPI Sync Stats     $with_comm_sync_stats"
 echo "Call Graph Viz     $enable_call_graph"
 echo "Sanity Checking    $enable_sanity_check"
-if test -z "$vtk_path"; then
-echo "VTK                no"
-else
-echo "VTK                $vtk_version @ $vtk_path"
-fi
 
 echo "---------------------------------------------------------------"
 

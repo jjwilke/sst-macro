@@ -144,9 +144,9 @@ class Dragonfly : public CartesianTopology
 
   std::string portTypeName(SwitchId sid, int port) const override;
 
-  VTKSwitchGeometry getVtkGeometry(SwitchId sid) const override;
+  SwitchGeometry getGeometry(SwitchId sid) const override;
 
-  bool isCurvedVtkLink(SwitchId sid, int port) const override;
+  bool isCurvedLink(SwitchId sid, int port) const override;
 
   void connectedOutports(SwitchId src, std::vector<Connection>& conns) const override;
 
@@ -253,11 +253,11 @@ class Dragonfly : public CartesianTopology
   int h_;
   int g_;
 
-  double vtk_edge_size_;
-  double vtk_radius_;
-  double vtk_box_length_;
-  double vtk_group_radians_;
-  double vtk_switch_radians_;
+  double geom_edge_size_;
+  double geom_radius_;
+  double geom_box_length_;
+  double geom_group_radians_;
+  double geom_switch_radians_;
 
   InterGroupWiring* group_wiring_;
 

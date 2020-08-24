@@ -99,7 +99,7 @@ RegisterKeywords(
 { "h", "the number inter-group connections per router" },
 { "group_connections", "the number of inter-group connections per router"},
 { "inter_group", "the inter-group wiring scheme"},
-{ "vtk_row_spacing", "the relative spacing of dragonfly+ rows" },
+{ "geom_row_spacing", "the relative spacing of dragonfly+ rows" },
 );
 
 namespace sstmac {
@@ -114,7 +114,7 @@ DragonflyPlus::DragonflyPlus(SST::Params& params) :
 
   num_leaf_switches_ = a_*g_;
 
-  vtk_row_spacing_ = params.find<double>("vtk_row_spacing", 2.0);
+  geom_row_spacing_ = params.find<double>("geom_row_spacing", 2.0);
 }
 
 void
@@ -225,8 +225,8 @@ DragonflyPlus::connectedOutports(SwitchId src, std::vector<Connection>& conns) c
   }
 }
 
-Topology::VTKSwitchGeometry
-DragonflyPlus::getVtkGeometry(SwitchId sid) const
+Topology::SwitchGeometry
+DragonflyPlus::getGeometry(SwitchId sid) const
 {
   int myRow;
   int myA;
@@ -234,8 +234,8 @@ DragonflyPlus::getVtkGeometry(SwitchId sid) const
   getCoords(sid, myRow, myA, myG);
 
   //we need to figure out the radian offset of the group
-  double inter_group_offset = vtk_group_radians_ * myG;
-  double intra_group_start = vtk_switch_radians_ * myA;
+  double inter_group_offset = geom_group_radians_ * myG;
+  double intra_group_start = geom_switch_radians_ * myA;
 
   double theta = inter_group_offset + intra_group_start;
 
@@ -243,25 +243,25 @@ DragonflyPlus::getVtkGeometry(SwitchId sid) const
    * These will get rotated appropriately */
   double zCorner = 0.0;
   double yCorner = 0.0;
-  double xCorner = vtk_radius_;
+  double xCorner = geom_radius_;
   if (myRow == 0){
     //this is the "intra-group" row without group connections
     //put this in the outer circle
-    xCorner += vtk_row_spacing_ * vtk_box_length_;
+    xCorner += geom_row_spacing_ * geom_box_length_;
   }
 
-  double xSize = vtk_box_length_;
+  double xSize = geom_box_length_;
   double ySize = 0.25; //this is the face pointing "into" the circle
   double zSize = 0.25;
 
   int num_ports = myRow == 0 ? a_ + concentration() : a_ + h_;
-  std::vector<VTKSwitchGeometry::port_geometry> ports(num_ports);
+  std::vector<SwitchGeometry::port_geometry> ports(num_ports);
   double y_fraction_a = 1.0 / double(a_);
   double y_fraction_h = 1.0 / double(h_);
   double y_fraction_c = 1.0 / double(concentration());
   if (myRow == 0){
     for (int a=0; a < a_; ++a){
-      VTKSwitchGeometry::port_geometry& geom = ports[a];
+      SwitchGeometry::port_geometry& geom = ports[a];
       geom.x_offset = 0;
       geom.x_size = 0.3;
       geom.y_offset = a * y_fraction_a;
@@ -270,7 +270,7 @@ DragonflyPlus::getVtkGeometry(SwitchId sid) const
       geom.z_size = 1.0;
     }
     for (int c=0; c < concentration(); ++c){
-      VTKSwitchGeometry::port_geometry& geom = ports[a_ + c];
+      SwitchGeometry::port_geometry& geom = ports[a_ + c];
       geom.x_offset = 1;
       geom.x_size = 0.3;
       geom.y_offset = c * y_fraction_c;
@@ -280,7 +280,7 @@ DragonflyPlus::getVtkGeometry(SwitchId sid) const
     }
   } else {
     for (int a=0; a < a_; ++a){
-      VTKSwitchGeometry::port_geometry& geom = ports[a];
+      SwitchGeometry::port_geometry& geom = ports[a];
       geom.x_offset = 1;
       geom.x_size = -0.3;
       geom.y_offset = a * y_fraction_a;
@@ -289,7 +289,7 @@ DragonflyPlus::getVtkGeometry(SwitchId sid) const
       geom.z_size = 1.0;
     }
     for (int h=0; h < h_; ++h){
-      VTKSwitchGeometry::port_geometry& geom = ports[a_ + h];
+      SwitchGeometry::port_geometry& geom = ports[a_ + h];
       geom.x_offset = 0;
       geom.x_size = 0.3;
       geom.y_offset = h * y_fraction_h;
@@ -299,7 +299,7 @@ DragonflyPlus::getVtkGeometry(SwitchId sid) const
     }
   }
 
-  VTKSwitchGeometry geom(xSize, ySize, zSize,
+  SwitchGeometry geom(xSize, ySize, zSize,
                            xCorner, yCorner, zCorner, theta,
                            std::move(ports));
 

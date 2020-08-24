@@ -77,18 +77,18 @@ Dragonfly::Dragonfly(SST::Params& params) :
   }
 
   static const double TWO_PI = 6.283185307179586;
-  vtk_edge_size_ = params.find<double>("vtk_edge_size", 0.25);
+  geom_edge_size_ = params.find<double>("geom_edge_size", 0.25);
 
   a_ = dimensions_[0];
   g_ = dimensions_[1];
 
   //determine radius to make x-dim of switches 0.33
   //r*2pi = edge*n - edge here is 25% larger than requested edge size
-  vtk_radius_ = (vtk_edge_size_*1.25*a_*g_) / TWO_PI;
-  vtk_box_length_ = 0.2*vtk_radius_;
+  geom_radius_ = (geom_edge_size_*1.25*a_*g_) / TWO_PI;
+  geom_box_length_ = 0.2*geom_radius_;
 
-  vtk_group_radians_ = TWO_PI / g_;
-  vtk_switch_radians_ = vtk_group_radians_ / a_ / 1.5;
+  geom_group_radians_ = TWO_PI / g_;
+  geom_switch_radians_ = geom_group_radians_ / a_ / 1.5;
 
   if (params.contains("group_connections")){
     h_ = params.find<int>("group_connections");
@@ -196,7 +196,7 @@ Dragonfly::connectedOutports(SwitchId src, std::vector<Connection>& conns) const
 }
 
 bool
-Dragonfly::isCurvedVtkLink(SwitchId  /*sid*/, int port) const
+Dragonfly::isCurvedLink(SwitchId  /*sid*/, int port) const
 {
   if (port >= a_){
     return false; //global link - these are straight lines
@@ -205,8 +205,8 @@ Dragonfly::isCurvedVtkLink(SwitchId  /*sid*/, int port) const
   }
 }
 
-Topology::VTKSwitchGeometry
-Dragonfly::getVtkGeometry(SwitchId sid) const
+Topology::SwitchGeometry
+Dragonfly::getGeometry(SwitchId sid) const
 {
   /**
    * The switches are arranged in circle. The faces
@@ -223,8 +223,8 @@ Dragonfly::getVtkGeometry(SwitchId sid) const
   int myG = computeG(sid);
 
   //we need to figure out the radian offset of the group
-  double inter_group_offset = myG*vtk_group_radians_;
-  double intra_group_start = myA*vtk_switch_radians_;
+  double inter_group_offset = myG*geom_group_radians_;
+  double intra_group_start = myA*geom_switch_radians_;
 
   double theta = inter_group_offset + intra_group_start;
 
@@ -232,19 +232,19 @@ Dragonfly::getVtkGeometry(SwitchId sid) const
    * These will get rotated appropriately */
   double zCorner = 0.0;
   double yCorner = 0.0;
-  double xCorner = vtk_radius_;
+  double xCorner = geom_radius_;
 
-  double xSize = vtk_box_length_;
+  double xSize = geom_box_length_;
   double ySize = 0.25; //this is the face pointing "into" the circle
   double zSize = 0.25;
 
-  std::vector<VTKSwitchGeometry::port_geometry> ports(a_ + h_ + concentration());
+  std::vector<SwitchGeometry::port_geometry> ports(a_ + h_ + concentration());
   double port_fraction_a = 1.0 / a_;
   double port_fraction_h = 1.0 / h_;
   double port_fraction_c = 1.0 / concentration();
 
   for (int a=0; a < a_; ++a){
-    VTKSwitchGeometry::port_geometry& p = ports[a];
+    SwitchGeometry::port_geometry& p = ports[a];
     p.x_offset = 1.0;
     p.x_size = -0.3;
     p.y_offset = a * port_fraction_a;
@@ -254,7 +254,7 @@ Dragonfly::getVtkGeometry(SwitchId sid) const
   }
 
   for (int h=0; h < h_; ++h){
-    VTKSwitchGeometry::port_geometry& p = ports[a_ + h];
+    SwitchGeometry::port_geometry& p = ports[a_ + h];
     p.x_offset = 0;
     p.x_size = 0.3;
     p.y_offset = h * port_fraction_h;
@@ -265,7 +265,7 @@ Dragonfly::getVtkGeometry(SwitchId sid) const
 
 
   for (int c=0; c < concentration(); ++c){
-    VTKSwitchGeometry::port_geometry& p = ports[a_ + h_ + c];
+    SwitchGeometry::port_geometry& p = ports[a_ + h_ + c];
     p.x_offset = 0.35;
     p.x_size = 0.35;
     p.y_offset = c * port_fraction_c;
@@ -274,9 +274,9 @@ Dragonfly::getVtkGeometry(SwitchId sid) const
     p.z_size = 1.0;
   }
 
-  VTKSwitchGeometry geom(xSize, ySize, zSize,
-                           xCorner, yCorner, zCorner, theta,
-                           std::move(ports));
+  SwitchGeometry geom(xSize, ySize, zSize,
+                      xCorner, yCorner, zCorner, theta,
+                      std::move(ports));
 
   return geom;
 }

@@ -49,14 +49,6 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <sstmac/hardware/sculpin/sculpin.h>
 #include <sstmac/common/sstmac_config.h>
 #include <sstmac/common/stats/stat_collector.h>
-#if SSTMAC_VTK_ENABLED
-#if SSTMAC_INTEGRATED_SST_CORE
-#include <sst/core/sst_types.h>
-#include <sstmac/hardware/vtk/vtk_stats.h>
-#else
-#include <sstmac/hardware/vtk/vtk_stats.h>
-#endif
-#endif
 
 namespace sstmac {
 namespace hw {
@@ -137,15 +129,6 @@ class SculpinSwitch :
 
   Router* router_;
 
-
-#if SSTMAC_VTK_ENABLED
-#if SSTMAC_INTEGRATED_SST_CORE
-  std::vector<Statistic<traffic_event>* > traffic_intensity;
-#else
-  stat_vtk* vtk_;
-#endif
-#endif
-
   bool congestion_;
 
   std::set<NodeId> src_stat_filter_;
@@ -154,7 +137,6 @@ class SculpinSwitch :
   std::set<NodeId> dst_stat_highlight_;
 
   double highlight_scale_;
-  bool vtk_flicker_;
 
   double link_bw_;
 

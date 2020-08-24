@@ -128,7 +128,7 @@ class Torus : public CartesianTopology
 
   SwitchId switchAddr(const coordinates &coords) const override;
 
-  VTKSwitchGeometry getVtkGeometry(SwitchId sid) const override;
+  SwitchGeometry getGeometry(SwitchId sid) const override;
 
   int convertToPort(int dim, int dir) const {
     return 2*dim + dir;
