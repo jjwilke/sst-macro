@@ -246,9 +246,6 @@ class Topology : public sprockit::printable
 
     xyz origin() const {
       //return the center of the front face
-      double newX = corner.x;
-      double newY = corner.y;
-      double newZ = corner.z;
       return corner.rotate(rot);
     }
 

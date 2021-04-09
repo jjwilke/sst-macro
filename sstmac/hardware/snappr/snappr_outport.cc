@@ -73,7 +73,8 @@ SnapprOutPort::SnapprOutPort(uint32_t id, SST::Params& params, const std::string
                              Component* parent, const std::vector<int>& vls_per_qos)
   : SubComponent(id, subId + portName, parent),
     arbitration_scheduled(false), 
-    byte_delay(byt_delay), 
+    byte_delay(byt_delay),
+    intensity(nullptr),
     state_ftq(nullptr),
     queue_depth_ftq(nullptr),
     inports(nullptr),
@@ -95,8 +96,8 @@ SnapprOutPort::SnapprOutPort(uint32_t id, SST::Params& params, const std::string
         parent->registerMultiStatistic<int,uint64_t,uint64_t>(params, "state", subId));
   queue_depth_ftq = dynamic_cast<FTQCalendar*>(
         parent->registerMultiStatistic<int,uint64_t,uint64_t>(params, "queue_depth", subId));
+        intensity = registerMultiStatistic<uint64_t, double>(params, "traffic_intensity", subId);
 #endif
-  intensity = registerStatistic<int>(params, "intensity", subId);
   ftq_idle_state = FTQTag::allocateCategoryId("idle:" + portName);
   ftq_active_state = FTQTag::allocateCategoryId("active:" + portName);
   ftq_stalled_state = FTQTag::allocateCategoryId("stalled:" + portName);
@@ -296,14 +297,18 @@ SnapprOutPort::arbitrate()
 
   arbitration_scheduled = false;
   if (ready()){
-    intensity->addData(queueLength());
+    if (intensity){
+      intensity->addData(parent_->now().usec(), queueLength());
+    }
     logQueueDepth();
     pkt_debug("arbitrating packet from port %d with %d queued",
               number_, queueLength());
     SnapprPacket* pkt = popReady();
     send(pkt, parent_->now());
   } else {
-    intensity->addData(intensity_stalled);
+    if (intensity){
+      intensity->addData(parent_->now().usec(), intensity_stalled);
+    }
     if (stall_start.empty()){
       stall_start = parent_->now();
     }

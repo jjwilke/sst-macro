@@ -170,12 +170,31 @@ class Interconnect:
 
   def connectSwitches(self):
     switchParams = getParamNamespace(self.params, "switch")
+    sideX = 0.5
+    sideY = 0.5
+    sideZ = 0.5
+    sst.setStatisticLoadLevel(7)
+    sst.setStatisticOutput("sst.vtkstatisticoutputexodus")
     for i in range(self.num_switches):
       linkParams = getParamNamespace(switchParams, "link", "switch")
       connections = self.system.switchConnections(i)
+      switch_geometry = self.system.switchGeometry(i)
+      print("switchConnections: ", connections)
+      print("switch_geometry: ", switch_geometry)
       srcSwitch, params = self.switches[i]
       lat = self.latency(linkParams)
+      p = 0;
       for srcId, dstId, srcOutport, dstInport in connections:
+        stat_params = dict(
+          origin=[1, 1 + p, 1],
+          size=[sideX, sideY, sideZ],
+          shape="line",
+          type="sst.IntensityStatistic",
+        )
+        p = p+1;
+        port = srcSwitch.setSubComponent("port%d" % srcOutport, "macro.SnapprOutPort")
+        port.enableStatistics(["traffic_intensity"], stat_params)
+        print("CONNECTEDSWITCHES ", port)
         dstSwitch, dstParams = self.switches[dstId]
         makeUniNetworkLink(srcSwitch,srcId,srcOutport,
                            dstSwitch,dstId,dstInport,
@@ -314,6 +333,7 @@ def setupDeprecatedParams(params, debugList=[]):
 
 def setupDeprecated():
   import sys
+  print("setupDeprecated ", 1)
   sst.setProgramOption("timebase", "100as")
   params = readCmdLineParams()
   debugList = []

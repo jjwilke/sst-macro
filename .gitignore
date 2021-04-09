@@ -122,3 +122,4 @@ pp.*
 *.yaml
 
 sstmac_repo.h
+/.project

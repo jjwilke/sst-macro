@@ -4,4 +4,3 @@ import os
 import sst
 
 ic = setupDeprecated()
-

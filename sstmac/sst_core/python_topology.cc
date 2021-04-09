@@ -139,7 +139,7 @@ static PyMethodDef system_methods[] = {
       "map a node id to its corresponding LogP switch" },
   { "switchGeometry",
     (PyCFunction)sys_get_switch_geometry, METH_O,
-      "map a node id to its corresponding LogP switch" },
+      "get the geometry of a switch with its ports" },
   { "isLogP",
     (PyCFunction)sys_is_logp, METH_NOARGS,
       "return whether to do simple LogP build" },
@@ -265,18 +265,53 @@ sys_convert_to_list(const std::vector<sstmac::hw::Topology::InjectionPort>& port
 static PyObject*
 sys_get_switch_geometry(SystemPy_t *self, PyObject *idx)
 {
-  SwitchId sid = (SwitchId) ConvertToCppLong(swIdx);
+  SwitchId sid = (SwitchId) ConvertToCppLong(idx);
   sstmac::hw::Topology::SwitchGeometry geom = self->macro_topology->getGeometry(sid);
 
   sstmac::hw::Topology::xyz origin = geom.box.origin();
   sstmac::hw::Topology::xyz extent = geom.box.extent();
-  //TODO - add this to Python return value
+  int x = origin.x;
+  int y = origin.y;
+  int z = origin.z;
+  int ex = extent.x;
+  int ey = extent.y;
+  int ez = extent.z;
+  std::cout << " topo : " << x <<" " << y <<" " << z <<" " << ex <<" " << ey <<" " <<ez <<std::endl;
+  PyObject* geomTuple = PyTuple_New(3);
+  PyObject* geomOriginTuple = PyTuple_New(3);
+  PyObject* geomExtentTuple = PyTuple_New(3);
+  PyObject* originX = ConvertToPythonLong(origin.x);
+  PyObject* originY = ConvertToPythonLong(origin.y);
+  PyObject* originZ = ConvertToPythonLong(origin.z);
+  PyObject* extentX = ConvertToPythonLong(extent.x);
+  PyObject* extentY = ConvertToPythonLong(extent.y);
+  PyObject* extentZ = ConvertToPythonLong(extent.z);
+  PyTuple_SetItem(geomOriginTuple, 0, originX);
+  PyTuple_SetItem(geomOriginTuple, 1, originY);
+  PyTuple_SetItem(geomOriginTuple, 2, originZ);
+  PyTuple_SetItem(geomExtentTuple, 0, extentX);
+  PyTuple_SetItem(geomExtentTuple, 1, extentY);
+  PyTuple_SetItem(geomExtentTuple, 2, extentZ);
+  PyTuple_SetItem(geomTuple, 0, geomOriginTuple);
+  PyTuple_SetItem(geomTuple, 1, geomExtentTuple);
+
+  PyObject* portsTuple = PyTuple_New(geom.ports.size());
 
   for (int p=0; p < geom.ports.size(); ++p){
     sstmac::hw::Topology::xyz port_xyz = geom.get_port_geometry(p).origin();
-    //TODO - add this to Python return value
+    PyObject* portTuple = PyTuple_New(3);
+    PyObject* portX = ConvertToPythonLong(port_xyz.x);
+    PyObject* portY = ConvertToPythonLong(port_xyz.y);
+    PyObject* portZ = ConvertToPythonLong(port_xyz.z);
+    PyTuple_SetItem(portTuple, 0, portX);
+    PyTuple_SetItem(portTuple, 1, portY);
+    PyTuple_SetItem(portTuple, 2, portZ);
+    PyTuple_SetItem(portsTuple, p, portTuple);
   }
 
+  PyTuple_SetItem(geomTuple, 2, portsTuple);
+
+  return geomTuple;
 }
 
 static PyObject*
