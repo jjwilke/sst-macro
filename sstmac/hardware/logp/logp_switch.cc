@@ -63,7 +63,7 @@ MakeDebugSlot(logp)
 namespace sstmac {
 namespace hw {
 
-LogPSwitch::LogPSwitch(uint32_t cid, SST::Params& params) :
+LogPSwitch::LogPSwitch(SST::ComponentId_t cid, SST::Params& params) :
   ConnectableComponent(cid, params),
   rng_(nullptr), contention_model_(nullptr)
 {

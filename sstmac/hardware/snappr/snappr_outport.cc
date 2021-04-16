@@ -67,7 +67,7 @@ Questions? Contact sst-macro-help@sandia.gov
 namespace sstmac {
 namespace hw {
 
-SnapprOutPort::SnapprOutPort(uint32_t id, SST::Params& params,
+SnapprOutPort::SnapprOutPort(SST::ComponentId_t id, SST::Params& params,
                              const std::string& subId, const std::string& portName,
                              int number, bool congestion, bool flow_control,
                              Component* parent, const std::vector<int>& vls_per_qos)

@@ -90,7 +90,7 @@ class LogPSwitch : public ConnectableComponent
   };
 
  public:
-  LogPSwitch(uint32_t cid, SST::Params& params);
+  LogPSwitch(SST::ComponentId_t cid, SST::Params& params);
 
   ~LogPSwitch();
 

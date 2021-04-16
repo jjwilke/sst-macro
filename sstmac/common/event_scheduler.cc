@@ -75,7 +75,7 @@ EventLink::~EventLink()
 #if SSTMAC_INTEGRATED_SST_CORE
 SST::TimeConverter* SharedBaseComponent::time_converter_ = nullptr;
 
-IntegratedComponent::IntegratedComponent(uint32_t id) :
+IntegratedComponent::IntegratedComponent(SST::ComponentId_t id) :
   IntegratedBaseComponent<SST::Component>("self", id)
 {
   sprockit::output::init_out0(&std::cout);

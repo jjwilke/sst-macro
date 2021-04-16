@@ -82,14 +82,6 @@ class SnapprSwitch :
       {"outport%(num_ports)d", "The output ports for the Switch", "sstmac::SnapprOutport"},
   )
 
-  SST_ELI_DOCUMENT_STATISTICS(
-    {"traffic_intensity",    "Count the traffic on a port", "unit of traffic", 1},
-    {"xmit_stall", "congestion statistic", "cycles", 1}, // Name, Desc, Units, Enable Level
-    {"xmit_active", "activity statistic", "cycles", 1}, // Name, Desc, Units, Enable Level
-    {"xmit_idle", "idle statistic", "cycles", 1}, // Name, Desc, Units, Enable Level
-    {"bytes_sent", "data sent on port", "bytes", 1}
-  )
-
   SnapprSwitch(uint32_t id, SST::Params& params);
 
   ~SnapprSwitch();

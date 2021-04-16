@@ -99,6 +99,10 @@ Questions? Contact sst-macro-help@sandia.gov
 #define COMPONENT_CATEGORY_MEMORY         0x02
 #define COMPONENT_CATEGORY_NETWORK        0x04
 #define COMPONENT_CATEGORY_SYSTEM         0x08
+
+namespace SST {
+using ComponentId_t = uint32_t;
+}
 #endif
 
 #endif /* SSTMAC_MICRO_INTEGRATED_COMPONENT_H_ */

@@ -186,7 +186,7 @@ namespace sstmac {
 
 class SharedBaseComponent {
  public:
-  uint32_t componentId() const {
+  SST::ComponentId_t componentId() const {
     return id_;
   }
 
@@ -199,7 +199,7 @@ class SharedBaseComponent {
   }
 
  protected:
-  SharedBaseComponent(uint32_t id) :
+  SharedBaseComponent(SST::ComponentId_t id) :
     id_(id),
     thread_id_(0),
     nthread_(1)
@@ -287,7 +287,7 @@ class IntegratedBaseComponent :
   }
 
 protected:
- IntegratedBaseComponent(const std::string& selfname, uint32_t id) :
+ IntegratedBaseComponent(const std::string& selfname, SST::ComponentId_t id) :
    Base(id),
    SharedBaseComponent(id)
  {
@@ -312,7 +312,7 @@ class IntegratedComponent
   : public IntegratedBaseComponent<SST::Component>
 {
  protected:
-  IntegratedComponent(uint32_t id);
+  IntegratedComponent(SST::ComponentId_t id);
 
 };
 
@@ -386,7 +386,7 @@ class MacroBaseComponent
   }
 
  public:
-  uint32_t componentId() const {
+  SST::ComponentId_t componentId() const {
     return id_;
   }
 
@@ -425,7 +425,7 @@ class MacroBaseComponent
  protected:
   //friend int ::sstmac::run_standalone(int, char**);
 
-  MacroBaseComponent(const std::string& /*selfname*/, uint32_t id) :
+  MacroBaseComponent(const std::string& /*selfname*/, SST::ComponentId_t id) :
     mgr_(nullptr), 
     seqnum_(0), 
     selfLinkId_(EventLink::allocateSelfLinkId()),
@@ -438,7 +438,7 @@ class MacroBaseComponent
     setManager();
   }
 
-  MacroBaseComponent(uint32_t id)
+  MacroBaseComponent(SST::ComponentId_t id)
     : MacroBaseComponent("self", id)
   {
   }
@@ -457,7 +457,7 @@ class MacroBaseComponent
   void setManager();
 
  private:
-  uint32_t id_;
+  SST::ComponentId_t id_;
   int thread_id_;
   int nthread_;
 
@@ -482,7 +482,7 @@ class Component : public ComponentParent
   void init(unsigned int phase) override; 
 
  protected:
-  Component(uint32_t cid, SST::Params& /*params*/) :
+  Component(SST::ComponentId_t cid, SST::Params& /*params*/) :
    ComponentParent(cid)
   {
   }
@@ -498,7 +498,7 @@ class SubComponent : public SubComponentParent
   void init(unsigned int phase) override; 
 
  protected:
-  SubComponent(uint32_t id, const std::string& selfname, SST::Component* /*parent*/) :
+  SubComponent(SST::ComponentId_t id, const std::string& selfname, SST::Component* /*parent*/) :
     SubComponentParent(selfname, id)
   {
   }
